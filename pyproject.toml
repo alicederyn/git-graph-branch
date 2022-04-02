@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "git-graph-branch"
+version = "0.1.0"
+description = "Terminal tool to graph git branches and branch metadata"
+authors = ["Alice Purcell <Alice.Purcell.39@gmail.com>"]
+
+[tool.poetry.scripts]
+git-graph-branch="git_graph_branch:main"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.dev-dependencies]
+black = "^22.1.0"
+mypy = "^0.931"
+flake8 = "^4.0.1"
+isort = "^5.10.1"
+pytest = "^7.0.1"
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+strict = "True"
+files = "git_graph_branch"
+
+[tool.pytest.ini_options]
+addopts = "--doctest-modules"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
