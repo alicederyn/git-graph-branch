@@ -20,7 +20,11 @@ def main() -> None:
         argument_parser().parse_args()
         from .git import branches
 
-        print(tuple(branches()))
+        bs = tuple(branches())
+        print(bs)
+        for b in bs:
+            if b.is_head:
+                print(f"HEAD: {b}")
     except Exception as e:
         LOG.fatal(str(e))
         sys.exit(1)

@@ -19,6 +19,11 @@ def git_dir() -> Path:
     raise Exception("not a git repository (or any of the parent directories): .git")
 
 
+@cache
+def git_head() -> str:
+    return (git_dir() / "HEAD").open(encoding="utf-8").read().strip()
+
+
 class Branch:
     def __init__(self, ref: Path | str):
         self._ref = ref if isinstance(ref, Path) else git_dir() / "refs" / "heads" / ref
@@ -30,6 +35,10 @@ class Branch:
 
     def __repr__(self) -> str:
         return f"git.Branch({repr(self.name)})"
+
+    @property
+    def is_head(self) -> bool:
+        return git_head() == f"ref: refs/heads/{self.name}"
 
 
 def branches() -> Iterable[Branch]:
