@@ -18,13 +18,14 @@ def main() -> None:
     configure_logging()
     try:
         argument_parser().parse_args()
-        from .git import branches
+        from .git import branches, config
 
         bs = tuple(branches())
         print(bs)
         for b in bs:
             if b.is_head:
                 print(f"HEAD: {b}")
+        print(config())
     except Exception as e:
         LOG.fatal(str(e))
         sys.exit(1)
