@@ -24,7 +24,11 @@ def main() -> None:
         print(bs)
         for b in bs:
             if b.is_head:
-                print(f"HEAD: {b}")
+                print("HEAD:", end=" ")
+            print(b.name, end=" ")
+            if b.upstream:
+                print("upstream:" + b.upstream.name, end=" ")
+            print()
         print(config())
     except Exception as e:
         LOG.fatal(str(e))

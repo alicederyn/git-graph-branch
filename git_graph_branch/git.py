@@ -83,6 +83,19 @@ class Branch:
     def is_head(self) -> bool:
         return git_head() == f"ref: refs/heads/{self.name}"
 
+    @property
+    def upstream(self) -> "Branch | None":
+        c = config().get(("branch", self.name), {})
+        remote = c.get("remote", ".")
+        merge = c.get("merge")
+        if not merge:
+            return None
+        if remote == "." and merge.startswith("refs/heads/"):
+            b = merge.removeprefix("refs/heads/")
+            return Branch(b)
+        # TODO: Handle remote branches
+        return None
+
 
 def branches() -> Iterable[Branch]:
     heads_dir = git_dir() / "refs" / "heads"
