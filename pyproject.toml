@@ -22,7 +22,7 @@ profile = "black"
 
 [tool.mypy]
 strict = "True"
-files = "git_graph_branch"
+files = "git_graph_branch,test"
 
 [tool.pytest.ini_options]
 addopts = "--doctest-modules"
