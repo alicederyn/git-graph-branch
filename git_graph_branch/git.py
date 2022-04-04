@@ -79,6 +79,14 @@ class Branch:
     def __repr__(self) -> str:
         return f"git.Branch({repr(self.name)})"
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Branch):
+            return other._ref == self._ref
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self._ref)
+
     @property
     def is_head(self) -> bool:
         return git_head() == f"ref: refs/heads/{self.name}"
