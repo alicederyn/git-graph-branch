@@ -33,9 +33,7 @@ def parse_config(lines: Iterable[str]) -> Config:
         elif BLANK.match(line):
             pass
         elif current_dict is not None:
-            if m := KEY_VALUE.match(line):
-                current_dict[m.group(1)] = m.group(2)
-            elif m := KEY_QUOTED_VALUE.match(line):
+            if m := (KEY_VALUE.match(line) or KEY_QUOTED_VALUE.match(line)):
                 current_dict[m.group(1)] = (
                     m.group(2).encode("utf-8").decode("unicode_escape")
                 )

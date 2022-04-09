@@ -30,6 +30,17 @@ def test_simple_config() -> None:
     }
 
 
+def test_unquoted_escape_handling() -> None:
+    lines = [
+        '[branch "baz"]',
+        r"  merge = refs/heads/a\"b",
+    ]
+    c = parse_config(lines)
+    assert c == {
+        ("branch", "baz"): {"merge": 'refs/heads/a"b'},
+    }
+
+
 def test_quote_handling() -> None:
     lines = [
         '[branch "foo#bar"]',
