@@ -164,6 +164,11 @@ class Branch:
         return git_head() == f"ref: refs/heads/{self.name}"
 
     @property
+    def commit(self) -> Commit:
+        with open(self._ref, "r", encoding="ascii") as f:
+            return Commit(f.readline().strip())
+
+    @property
     def upstream(self) -> "Branch | None":
         c = config().get(("branch", self.name), {})
         remote = c.get("remote", ".")
