@@ -1,6 +1,6 @@
 import pytest
 
-from git_graph_branch.git import parse_config
+from git_graph_branch.git.config import parse_config
 
 
 def test_empty_config() -> None:

@@ -18,7 +18,8 @@ def main() -> None:
     configure_logging()
     try:
         argument_parser().parse_args()
-        from .git import branches, config
+        from .git import branches
+        from .git.config import config
 
         bs = tuple(branches())
         print(bs)

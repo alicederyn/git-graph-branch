@@ -1,4 +1,4 @@
-from git_graph_branch.git import GitObject
+from git_graph_branch.git.object import GitObject
 
 COMMIT_NO_PARENT = bytes.fromhex(
     "7801958d410e823010003df7157b3721050ab48931fa03125fd02e5ba9166aca"
