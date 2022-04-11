@@ -1,4 +1,6 @@
 import re
+import zlib
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Iterable
@@ -45,6 +47,37 @@ def parse_config(lines: Iterable[str]) -> Config:
     return result
 
 
+def decompress(commit: Iterable[bytes]) -> bytes:
+    z = zlib.decompressobj(zlib.MAX_WBITS)
+    decompressed: list[bytes] = []
+    for compressed in commit:
+        decompressed.append(z.decompress(compressed))
+    decompressed.append(z.flush())
+    return b"".join(decompressed)
+
+
+@dataclass
+class GitObject:
+    parents: tuple[str, ...]
+    message: bytes
+
+    @property
+    def first_parent(self) -> str | None:
+        return self.parents[0] if self.parents else None
+
+    @classmethod
+    def decode(cls, commit: Iterable[bytes]) -> "GitObject":
+        """Parses a git commit object for metadata"""
+        raw = decompress(commit)
+        parents: list[str] = []
+        lines = iter(raw[raw.find(b"\0") + 1 :].split(b"\n"))
+        while line := next(lines):
+            if line.startswith(b"parent "):
+                parents.append(line.removeprefix(b"parent ").decode("ascii"))
+        message = b"\n".join(lines)
+        return cls(parents=tuple(parents), message=message)
+
+
 @cache
 def git_dir() -> Path:
     for p in path_and_parents(Path.cwd()):
@@ -63,6 +96,47 @@ def config() -> Config:
 @cache
 def git_head() -> str:
     return (git_dir() / "HEAD").open(encoding="utf-8").read().strip()
+
+
+class Commit:
+    def __init__(self, hash: str):
+        self.hash = hash
+        self._cached_git_object: GitObject | None = None
+
+    @property
+    def parents(self) -> "tuple[Commit, ...]":
+        return tuple(Commit(hash) for hash in self._git_object().parents)
+
+    @property
+    def first_parent(self) -> "Commit | None":
+        hash = self._git_object().first_parent
+        return Commit(hash) if hash else None
+
+    @property
+    def message(self) -> bytes:
+        return self._git_object().message
+
+    def _git_object(self) -> GitObject:
+        if self._cached_git_object is None:
+            # TODO: Handle packfiles
+            filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]
+            with open(filename, "rb") as f:
+                self._cached_git_object = GitObject.decode(f)
+        return self._cached_git_object
+
+    def __str__(self) -> str:
+        return self.hash[:10]
+
+    def __repr__(self) -> str:
+        return f"git.Commit({repr(self.hash)})"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Commit):
+            return other.hash == self.hash
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.hash)
 
 
 class Branch:
