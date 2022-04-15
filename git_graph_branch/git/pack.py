@@ -4,7 +4,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Iterable, Type
 
-from .decode import read_offset, read_size
+from .decode import apply_delta, decompress, read_offset, read_size
 
 
 class PackIndex:
@@ -204,3 +204,45 @@ class PackData:
         else:
             raise Exception(f"Unexpected object type ({kind_bits})")
         return Delta(relative_to, self._f, self._f.tell(), size)
+
+
+class Pack:
+    def __init__(self, index: PackIndex, data: PackData):
+        self._index = index
+        self._data = data
+
+    def _object_at_offset(self, offset: int) -> tuple[ObjectKind, bytes]:
+        obj = self._data.read_object(offset)
+        if isinstance(obj, DataObject):
+            kind = obj.kind
+            data = decompress(obj.compressed_data)
+            if len(data) != obj.length:
+                raise Exception("Possible corruption: size mismatch")
+        else:
+            assert self._data._f and not self._data._f.closed
+            assert not obj._f.closed
+            instructions = decompress(obj.compressed_instructions)
+            assert not obj._f.closed
+            assert self._data._f and not self._data._f.closed
+            if len(instructions) != obj.length:
+                raise Exception("Possible corruption: size mismatch")
+            base_ref = obj.relative_to
+            if isinstance(base_ref, int):
+                kind, base = self._object_at_offset(base_ref)
+            else:
+                try:
+                    kind, base = self._object_at_offset(self._index[base_ref])
+                except KeyError:
+                    raise Exception("Possible corruption: missing base ref")
+            data = apply_delta(base, instructions)
+        return (kind, data)
+
+    def __getitem__(self, hash: str) -> tuple[ObjectKind, bytes]:
+        with self._index:
+            offset = self._index[hash]
+            with self._data:
+                return self._object_at_offset(offset)
+
+    def __contains__(self, hash: str) -> bool:
+        with self._index:
+            return hash in self._index
