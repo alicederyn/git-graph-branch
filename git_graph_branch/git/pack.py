@@ -1,6 +1,10 @@
+from enum import Enum
+from io import BufferedIOBase, BufferedReader
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Type
+from typing import BinaryIO, Iterable, Type
+
+from .decode import read_offset, read_size
 
 
 class PackIndex:
@@ -93,3 +97,110 @@ class PackIndex:
             return True
         except KeyError:
             return False
+
+
+class ObjectKind(Enum):
+    COMMIT = 1
+    TREE = 2
+    BLOB = 3
+    TAG = 4
+
+
+KINDS_BY_VAL: dict[int, ObjectKind] = {t.value: t for t in ObjectKind}
+OFS_DELTA = 6
+REF_DELTA = 7
+
+
+class DataObject:
+    def __init__(self, kind: ObjectKind, f: BufferedReader, offset: int, length: int):
+        self.kind = kind
+        self._f = f
+        self._offset = offset
+        self.length = length
+
+    @property
+    def compressed_data(self) -> Iterable[bytes]:
+        if self._f.tell() != self._offset:
+            self._f.seek(self._offset)
+        yield from self._f
+        assert not self._f.closed
+
+
+class Delta:
+    def __init__(
+        self,
+        relative_to: int | str,
+        f: BufferedIOBase,
+        offset: int,
+        length: int,
+    ):
+        self.relative_to = relative_to
+        self._f = f
+        self._offset = offset
+        self.length = length
+
+    @property
+    def compressed_instructions(self) -> Iterable[bytes]:
+        if self._f.tell() != self._offset:
+            self._f.seek(self._offset)
+        for b in self._f:
+            yield b
+
+
+class PackData:
+    def __init__(self, path: Path):
+        self._path = path
+        self._f: BufferedReader | None = None
+        self._inited = False
+        self._in_with_block = False
+
+    def __enter__(self) -> "PackData":
+        assert not self._in_with_block
+        assert not self._f
+        self._in_with_block = True
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        assert self._in_with_block
+        self._in_with_block = False
+        if f := self._f:
+            self._f = None
+            f.close()
+
+    def _open(self) -> None:
+        assert self._in_with_block
+        if not self._f:
+            f = open(self._path, "rb")
+            assert isinstance(f, BufferedReader)
+            self._f = f
+        if not self._inited:
+            header = self._f.read(8)
+            if header != b"PACK\x00\x00\x00\x02":
+                raise Exception("Unsupported pack format (must be v2)")
+            self._inited = True
+
+    def read_object(self, offset: int) -> DataObject | Delta:
+        if offset < 12:
+            raise Exception("Possible corruption: invalid offset")
+        self._open()
+        assert self._f
+        self._f.seek(offset)
+        size = read_size(self._f)
+        kind_bits = (size >> 4) & 0x7
+        size = (size & 0xF) | ((size >> 7) << 4)
+        kind = KINDS_BY_VAL.get(kind_bits)
+        if kind is not None:
+            return DataObject(kind, self._f, self._f.tell(), size)
+        relative_to: int | str
+        if kind_bits == OFS_DELTA:
+            relative_to = offset - read_offset(self._f)
+        elif kind_bits == REF_DELTA:
+            relative_to = self._f.read(20).hex()
+        else:
+            raise Exception(f"Unexpected object type ({kind_bits})")
+        return Delta(relative_to, self._f, self._f.tell(), size)
