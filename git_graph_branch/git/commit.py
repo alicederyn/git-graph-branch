@@ -1,3 +1,4 @@
+from .decode import decompress
 from .object import GitObject
 from .path import git_dir
 
@@ -25,7 +26,7 @@ class Commit:
             # TODO: Handle packfiles
             filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]
             with open(filename, "rb") as f:
-                self._cached_git_object = GitObject.decode(f)
+                self._cached_git_object = GitObject.decode(decompress(f))
         return self._cached_git_object
 
     def __str__(self) -> str:
