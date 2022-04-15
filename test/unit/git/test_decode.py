@@ -1,7 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 
-from git_graph_branch.git.decode import decompress
+from git_graph_branch.git.decode import apply_delta, decompress
 
 data_dir = Path(__file__).parent / "data"
 
@@ -23,4 +23,29 @@ def test_decompress() -> None:
         b"author Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
         b"committer Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
         b"\nCommit 9\n"
+    )
+
+
+def test_apply_delta() -> None:
+    # Base object taken from offset 0x00C in example.pack
+    BASE = (
+        b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n"
+        b"parent 32bdb01503a97df72e75a5349c61d3106b2b9893\n"
+        b"author Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
+        b"committer Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
+        b"\nCommit 9\n"
+    )
+    # Delta object taken from offset 0x0C3 in example.pack
+    DELTA = bytes.fromhex(
+        "fb01fb0190362535373765386438613030333764663035326531313866626165"
+        "366436373235636364316365915b9e02310a"
+    )
+
+    result = apply_delta(BASE, DELTA)
+    assert result == (
+        b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n"
+        b"parent 3577e8d8a0037df052e118fbae6d6725ccd1ce93\n"
+        b"author Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
+        b"committer Unit Test Runner <unit-test-runner@example.com> 1649677560 +0100\n"
+        b"\nCommit 1\n"
     )

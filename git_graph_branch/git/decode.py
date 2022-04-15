@@ -1,4 +1,5 @@
 import zlib
+from io import BytesIO
 from typing import BinaryIO, Iterable
 
 
@@ -49,3 +50,64 @@ def read_offset(f: BinaryIO) -> int:
         if not (d[0] & 0x80):
             return result
     raise Exception("Unexpected end of file")
+
+
+def decode_copy(instr: int, f: BinaryIO, base: bytes) -> bytes:
+    """Decodes a copy instruction from a git delta
+
+    See also https://git-scm.com/docs/pack-format#_instruction_to_copy_from_base_object
+    """
+    offset = 0
+    size = 0
+    try:
+        if instr & 0x1:
+            offset |= f.read(1)[0]
+        if instr & 0x2:
+            offset |= f.read(1)[0] << 8
+        if instr & 0x4:
+            offset |= f.read(1)[0] << 16
+        if instr & 0x8:
+            offset |= f.read(1)[0] << 24
+        if instr & 0x10:
+            size |= f.read(1)[0]
+        if instr & 0x20:
+            size |= f.read(1)[0] << 8
+        if instr & 0x40:
+            size |= f.read(1)[0] << 16
+    except IndexError:
+        raise Exception("Unexpected end of file")
+    if size == 0:
+        size = 0x10000
+    if offset + size > len(base):
+        raise Exception("Possible corruption: copy instruction too large")
+    return base[offset : offset + size]
+
+
+def apply_delta(base: bytes, delta: bytes) -> bytes:
+    """Applies a git delta
+
+    See also https://git-scm.com/docs/pack-format#_deltified_representation
+    """
+    # The delta data starts with the size of the base object and the size of the
+    # object to be reconstructed. These sizes are encoded using...size encoding
+    f = BytesIO(delta)
+    base_size = read_size(f)
+    if len(base) != base_size:
+        raise Exception("Possible corruption: size mismatch")
+    length = read_size(f)
+
+    chunks = []
+    while instr := f.read(1):
+        if instr[0] & 0x80:
+            # Instruction to copy from base object
+            chunks.append(decode_copy(instr[0], f, base))
+        elif instr[0] == 0:
+            # Reserved for future encoding extensions
+            raise Exception("Unexpected delta opcode 0")
+        else:
+            # Raw data
+            chunks.append(f.read(instr[0]))
+    result = b"".join(chunks)
+    if len(result) != length:
+        raise Exception("Possible corruption: size mismatch")
+    return result
