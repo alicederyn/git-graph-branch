@@ -1,5 +1,6 @@
 from .decode import decompress
 from .object import GitObject
+from .pack import ObjectKind, packs
 from .path import git_dir
 
 
@@ -23,10 +24,20 @@ class Commit:
 
     def _git_object(self) -> GitObject:
         if self._cached_git_object is None:
-            # TODO: Handle packfiles
             filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]
-            with open(filename, "rb") as f:
-                self._cached_git_object = GitObject.decode(decompress(f))
+            try:
+                with open(filename, "rb") as f:
+                    data = decompress(f)
+            except FileNotFoundError:
+                try:
+                    kind, data = packs()[self.hash]
+                    if kind != ObjectKind.COMMIT:
+                        raise KeyError()
+                except KeyError:
+                    raise Exception(
+                        "Possible corruption: commit not found: " + self.hash
+                    )
+            self._cached_git_object = GitObject.decode(data)
         return self._cached_git_object
 
     def __str__(self) -> str:

@@ -60,3 +60,15 @@ def test_parents_simple_merge_tree(repo: Path) -> None:
     assert bar.first_parent == main
     assert foobar.parents == (foo, bar)
     assert foobar.first_parent == foo
+
+
+def test_packed_commits(repo: Path) -> None:
+    hashes = []
+    for n in range(10):
+        check_call(["git", "commit", "--allow-empty", "-m", f"Commit {n}"])
+        hashes.append(head_hash())
+    check_call(["git", "gc"])
+
+    for n, hash in enumerate(hashes):
+        commit = Commit(hash)
+        assert commit.message == f"Commit {n}\n".encode("ascii")

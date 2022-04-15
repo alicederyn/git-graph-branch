@@ -1,10 +1,12 @@
 from enum import Enum
+from functools import cache
 from io import BufferedIOBase, BufferedReader
 from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Iterable, Type
 
 from .decode import apply_delta, decompress, read_offset, read_size
+from .path import git_dir
 
 
 class PackIndex:
@@ -246,3 +248,37 @@ class Pack:
     def __contains__(self, hash: str) -> bool:
         with self._index:
             return hash in self._index
+
+
+class PackDir:
+    def __init__(self, pack_dir: Path):
+        assert pack_dir.is_dir()
+        packs: list[tuple[float, Pack]] = []
+        for data_file in pack_dir.glob("*.pack"):
+            data = PackData(data_file)
+            index_file = data_file.with_suffix(".idx")
+            if not index_file.is_file:
+                raise Exception("Missing index for pack file " + data_file)
+            index = PackIndex(index_file)
+            mtime = data_file.stat().st_mtime
+            packs.append((mtime, Pack(index, data)))
+        packs.sort(reverse=True)
+        self._packs = tuple(p[1] for p in packs)
+
+    def __getitem__(self, hash: str) -> tuple[ObjectKind, bytes]:
+        if not (isinstance(hash, str)):
+            raise TypeError("Pack keys must be str")
+        for pack in self._packs:
+            try:
+                return pack[hash]
+            except KeyError:
+                pass
+        raise KeyError(hash)
+
+    def __contains__(self, hash: str) -> bool:
+        return any(hash in pack for pack in self._packs)
+
+
+@cache
+def packs() -> PackDir:
+    return PackDir(git_dir() / "objects" / "pack")
