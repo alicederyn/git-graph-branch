@@ -5,6 +5,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Iterable, Type
 
+from .bloom import Bloom
 from .decode import apply_delta, decompress, read_offset, read_size
 from .path import git_dir
 
@@ -14,7 +15,7 @@ class PackIndex:
         self._path = path
         self._cache: dict[str, int] = {}
         self._f: BinaryIO | None = None
-        self._inited = False
+        self._bloom: Bloom | None = None
         self._in_with_block = False
 
     def __enter__(self) -> "PackIndex":
@@ -38,7 +39,7 @@ class PackIndex:
         assert self._in_with_block
         if not self._f:
             self._f = open(self._path, "rb")
-        if not self._inited:
+        if self._bloom is None:
             header = self._f.read(8)
             if header != b"\xfftOc\x00\x00\x00\x02":
                 raise Exception("Unsupported pack index format (must be v2)")
@@ -46,7 +47,9 @@ class PackIndex:
             size = int.from_bytes(self._f.read(4), byteorder="big", signed=False)
             self._small_offsets_table = 0x408 + 24 * size
             self._large_offsets_table = 0x408 + 28 * size
-            self._inited = True
+            self._bloom = Bloom(size)
+            for _ in range(size):
+                self._bloom.add(self._f.read(20))
         return self._f
 
     def _find_index(self, hash: bytes) -> int:
@@ -79,8 +82,11 @@ class PackIndex:
         if not (isinstance(hash, str)):
             raise TypeError("Pack keys must be str")
         if hash not in self._cache:
+            hash_bytes = bytes.fromhex(hash)
+            if self._bloom and hash_bytes not in self._bloom:
+                raise KeyError(hash)
             f = self._open()
-            idx = self._find_index(bytes.fromhex(hash))
+            idx = self._find_index(hash_bytes)
             f.seek(self._small_offsets_table + idx * 4)
             short_bytes = f.read(4)
             short_size = int.from_bytes(short_bytes, byteorder="big", signed=False)
