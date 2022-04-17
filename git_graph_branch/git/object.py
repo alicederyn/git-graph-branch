@@ -1,8 +1,12 @@
+import re
 from dataclasses import dataclass
+
+TIMESTAMP = re.compile(rb" (\d+)( [+-]\d+)?$")
 
 
 @dataclass
 class GitObject:
+    timestamp: int
     parents: tuple[str, ...]
     message: bytes
 
@@ -15,8 +19,16 @@ class GitObject:
         """Parses a git commit object for metadata"""
         parents: list[str] = []
         lines = iter(data[data.find(b"\0") + 1 :].split(b"\n"))
+        timestamp: int | None = None
         while line := next(lines):
             if line.startswith(b"parent "):
                 parents.append(line.removeprefix(b"parent ").decode("ascii"))
+            elif line.startswith(b"committer "):
+                m = TIMESTAMP.search(line)
+                if not m:
+                    raise Exception("Possible corruption: unparseable committer line")
+                timestamp = int(m.group(1))
+        if timestamp is None:
+            raise Exception("Possible corruption: missing timestamp")
         message = b"\n".join(lines)
-        return cls(parents=tuple(parents), message=message)
+        return cls(timestamp=timestamp, parents=tuple(parents), message=message)

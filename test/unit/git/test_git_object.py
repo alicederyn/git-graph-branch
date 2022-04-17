@@ -66,3 +66,8 @@ def test_comment_multiline() -> None:
         b"Fix an issue this picked up with how git handles "
         b"escapes when there are no quotes\n"
     )
+
+
+def test_timestamp() -> None:
+    output = GitObject.decode(COMMIT_NO_PARENT)
+    assert output.timestamp == 1649018473
