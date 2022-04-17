@@ -54,6 +54,14 @@ class Branch:
         # TODO: Handle remote branches
         return None
 
+    def reflog_reversed(self) -> Iterable[Commit]:
+        reflog = git_dir() / "logs" / "refs" / "heads" / self.name
+        with open(reflog, "rb") as f:
+            while f.read(41):
+                hash = f.read(40)
+                yield Commit(hash.decode("ascii"))
+                f.readline()  # Skip to next line
+
 
 def branches() -> Iterable[Branch]:
     heads_dir = git_dir() / "refs" / "heads"
