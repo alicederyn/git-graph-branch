@@ -4,6 +4,10 @@ from .pack import ObjectKind, packs
 from .path import git_dir
 
 
+class MissingCommit(Exception):
+    pass
+
+
 class Commit:
     def __init__(self, hash: str):
         self.hash = hash
@@ -22,6 +26,10 @@ class Commit:
     def message(self) -> bytes:
         return self._git_object().message
 
+    @property
+    def timestamp(self) -> int:
+        return self._git_object().timestamp
+
     def _git_object(self) -> GitObject:
         if self._cached_git_object is None:
             filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]
@@ -34,7 +42,7 @@ class Commit:
                     if kind != ObjectKind.COMMIT:
                         raise KeyError()
                 except KeyError:
-                    raise Exception(
+                    raise MissingCommit(
                         "Possible corruption: commit not found: " + self.hash
                     )
             self._cached_git_object = GitObject.decode(data)

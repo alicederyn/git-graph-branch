@@ -2,7 +2,8 @@ from functools import cache
 from pathlib import Path
 from typing import Iterable
 
-from .commit import Commit
+from .commit import Commit, MissingCommit
+from .commit_containers import ReachableCommits
 from .config import config
 from .path import git_dir
 
@@ -53,6 +54,35 @@ class Branch:
             return Branch(b)
         # TODO: Handle remote branches
         return None
+
+    @property
+    def upstream_commit(self) -> Commit | None:
+        if "_upstream_commit" not in self.__dict__:
+            upstream = self.upstream
+            if not upstream:
+                self._upstream_commit = None
+            else:
+                reachable = ReachableCommits(upstream.reflog_reversed())
+                for commit in self.history:
+                    reachable.rewind_to(commit)
+                    if commit in reachable:
+                        self._upstream_commit = commit
+                        break
+                else:
+                    self._upstream_commit = None
+        return self._upstream_commit
+
+    @property
+    def history(self) -> Iterable[Commit]:
+        """Same as git log --first-parent"""
+        c: Commit | None = self.commit
+        while c is not None:
+            yield c
+            try:
+                c = c.first_parent
+            except MissingCommit:
+                # Probably a shallow clone
+                c = None
 
     def reflog_reversed(self) -> Iterable[Commit]:
         reflog = git_dir() / "logs" / "refs" / "heads" / self.name
