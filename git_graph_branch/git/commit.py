@@ -4,10 +4,22 @@ from .pack import ObjectKind, packs
 from .path import git_dir
 
 
+class Missing:
+    pass
+
+
+class MissingCommit(Exception):
+    pass
+
+
 class Commit:
     def __init__(self, hash: str):
         self.hash = hash
-        self._cached_git_object: GitObject | None = None
+        self._cached_git_object: GitObject | Missing | None = None
+
+    @property
+    def timestamp(self) -> int:
+        return self._git_object().timestamp
 
     @property
     def parents(self) -> "tuple[Commit, ...]":
@@ -34,10 +46,10 @@ class Commit:
                     if kind != ObjectKind.COMMIT:
                         raise KeyError()
                 except KeyError:
-                    raise Exception(
-                        "Possible corruption: commit not found: " + self.hash
-                    )
+                    self._cached_git_object = Missing()
             self._cached_git_object = GitObject.decode(data)
+        if isinstance(self._cached_git_object, Missing):
+            raise MissingCommit("Shallow clone: commit not found: " + self.hash)
         return self._cached_git_object
 
     def __str__(self) -> str:
