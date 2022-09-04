@@ -3,42 +3,34 @@ from subprocess import check_call
 
 from git_graph_branch.git import Commit
 
-from .utils import head_hash, touch
+from .utils import git_test_commit, git_test_merge
 
 
 def test_commit_single_line_message(repo: Path) -> None:
-    check_call(["git", "commit", "--allow-empty", "-m", "Blank commit"])
-    main = Commit(head_hash())
+    hash = git_test_commit(message="Blank commit")
+    main = Commit(hash)
 
     assert main.message == b"Blank commit\n"
 
 
 def test_commit_multiline_message(repo: Path) -> None:
-    check_call(["git", "commit", "--allow-empty", "-m", "Commit\n\nWith no stuff"])
-    main = Commit(head_hash())
+    hash = git_test_commit(message="Commit\n\nWith no stuff")
+    main = Commit(hash)
 
     assert main.message == b"Commit\n\nWith no stuff\n"
 
 
 def test_parents_simple_merge_tree(repo: Path) -> None:
-    check_call(["git", "commit", "--allow-empty", "-m", "Blank commit"])
-    main_hash = head_hash()
+    main_hash = git_test_commit()
 
     check_call(["git", "checkout", "-b", "foo"])
-    touch("foo.txt")
-    check_call(["git", "add", "foo.txt"])
-    check_call(["git", "commit", "-m", "Add foo.txt"])
-    foo_hash = head_hash()
+    foo_hash = git_test_commit("foo.txt")
 
     check_call(["git", "checkout", "main", "-b", "bar"])
-    touch("bar.txt")
-    check_call(["git", "add", "bar.txt"])
-    check_call(["git", "commit", "bar.txt", "-m", "Add bar.txt"])
-    bar_hash = head_hash()
+    bar_hash = git_test_commit("bar.txt")
 
     check_call(["git", "checkout", "foo", "-b", "foobar"])
-    check_call(["git", "merge", "bar"])
-    foobar_hash = head_hash()
+    foobar_hash = git_test_merge("bar")
 
     main = Commit(main_hash)
     foo = Commit(foo_hash)
@@ -58,8 +50,8 @@ def test_parents_simple_merge_tree(repo: Path) -> None:
 def test_packed_commits(repo: Path) -> None:
     hashes = []
     for n in range(10):
-        check_call(["git", "commit", "--allow-empty", "-m", f"Commit {n}"])
-        hashes.append(head_hash())
+        hash = git_test_commit(message=f"Commit {n}")
+        hashes.append(hash)
     check_call(["git", "gc"])
 
     for n, hash in enumerate(hashes):
