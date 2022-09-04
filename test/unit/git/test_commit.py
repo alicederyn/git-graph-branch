@@ -1,16 +1,9 @@
 from pathlib import Path
-from subprocess import check_call, check_output
+from subprocess import check_call
 
 from git_graph_branch.git import Commit
 
-
-def touch(filename: str) -> None:
-    with open(filename, "w"):
-        pass
-
-
-def head_hash() -> str:
-    return check_output(["git", "rev-parse", "HEAD"], encoding="ascii").strip()
+from .utils import head_hash, touch
 
 
 def test_commit_single_line_message(repo: Path) -> None:

@@ -1,11 +1,13 @@
 from pathlib import Path
-from subprocess import check_call, check_output
+from subprocess import check_call
 
 from git_graph_branch.git import Branch, Commit
 
+from .utils import head_hash
+
 
 def head_commit() -> Commit:
-    return Commit(check_output(["git", "rev-parse", "HEAD"], encoding="ascii").strip())
+    return Commit(head_hash())
 
 
 def test_simple_names(repo: Path) -> None:
