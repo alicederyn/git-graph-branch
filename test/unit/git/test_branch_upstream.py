@@ -24,22 +24,22 @@ def test_main_remote_upstream(repo: Path) -> None:
 
 def test_upstream_is_main(repo: Path) -> None:
     git_test_commit()
-    check_call(["git", "checkout", "-tb", "feature"])
+    check_call(["git", "checkout", "-t", "-b", "feature"])
     b = Branch("feature")
     assert b.upstream == Branch("main")
 
 
 def test_quote_in_upstream(repo: Path) -> None:
     git_test_commit()
-    check_call(["git", "checkout", "-tb", 'a"b'])
-    check_call(["git", "checkout", "-tb", "feature"])
+    check_call(["git", "checkout", "-t", "-b", 'a"b'])
+    check_call(["git", "checkout", "-t", "-b", "feature"])
     b = Branch("feature")
     assert b.upstream == Branch('a"b')
 
 
 def test_hash_in_upstream(repo: Path) -> None:
     git_test_commit()
-    check_call(["git", "checkout", "-tb", "a#b"])
-    check_call(["git", "checkout", "-tb", "feature"])
+    check_call(["git", "checkout", "-t", "-b", "a#b"])
+    check_call(["git", "checkout", "-t", "-b", "feature"])
     b = Branch("feature")
     assert b.upstream == Branch("a#b")
