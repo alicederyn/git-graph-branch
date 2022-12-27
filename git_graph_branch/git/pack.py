@@ -263,8 +263,8 @@ class PackDir:
         for data_file in pack_dir.glob("*.pack"):
             data = PackData(data_file)
             index_file = data_file.with_suffix(".idx")
-            if not index_file.is_file:
-                raise Exception("Missing index for pack file " + data_file)
+            if not index_file.is_file():
+                raise Exception(f"Missing index for pack file: {data_file}")
             index = PackIndex(index_file)
             mtime = data_file.stat().st_mtime
             packs.append((mtime, Pack(index, data)))
