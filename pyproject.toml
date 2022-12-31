@@ -21,6 +21,9 @@ files = "git_graph_branch,test"
 [tool.pytest.ini_options]
 addopts = "--doctest-modules"
 
+[tool.setuptools.dynamic]
+dependencies = { file = "requirements.txt" }
+
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
