@@ -1,5 +1,6 @@
 -r requirements.txt
 black
+hypothesis
 mypy
 flake8
 isort
