@@ -1,5 +1,9 @@
 # coding=utf-8
-from typing import Any, Iterable
+from __future__ import annotations
+
+from typing import Any, Collection, Iterable, Mapping, TypeVar
+
+T = TypeVar("T")
 
 
 class NodeArt:
@@ -154,3 +158,53 @@ class NodeArt:
             self._first_codepoint(i) + self._second_codepoint(i)
             for i in range(self._cols)
         )
+
+
+def inverted(relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
+    inverse: dict[T, set[T]] = {b: set() for b in relationship}
+    for key, values in relationship.items():
+        for value in values:
+            inverse[value].add(key)
+    return inverse
+
+
+def add_node_art(
+    nodes: list[T], parents: Mapping[T, Collection[T]], children: Mapping[T, set[T]]
+) -> list[tuple[NodeArt, T]]:
+    """Add node art to a list of nodes to depict the associated edges.
+
+    The node list must be partially ordered to respect the DAG. Specifically,
+    edges must point up the list (or, equivalently, parents must come after
+    children).
+    """
+    columns: dict[T, int] = {}
+    active: list[T | None] = []
+    reached: set[T] = set()
+    grid: list[tuple[NodeArt, T]] = []
+    for b in reversed(nodes):
+        reached.add(b)
+
+        finished_parents = [p for p in parents[b] if children[p] <= reached]
+        at = (
+            min(columns[p] for p in finished_parents)
+            if finished_parents
+            else len(active)
+        )
+        columns[b] = at
+        down = {columns[p] for p in parents[b]}
+        for p in parents[b]:
+            if all(c in columns for c in children[p]):
+                active[columns[p]] = None
+        through = {
+            idx for idx, p in enumerate(active) if p and idx != at and idx not in down
+        }
+        if children[b]:
+            while len(active) <= at:
+                active.append(None)
+            active[at] = b
+        up = {idx for idx, p in enumerate(active) if p and idx not in through}
+        while active and active[-1] is None:
+            active.pop()
+        grid.append((NodeArt(at, up=up, down=down, through=through), b))
+    grid.reverse()
+    return grid
