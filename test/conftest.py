@@ -3,8 +3,11 @@ from pathlib import Path
 from subprocess import check_call, check_output
 from typing import Iterable
 
+import hypothesis
 import pytest
 from packaging import version
+
+hypothesis.settings.register_profile("thorough", max_examples=1_000)
 
 
 def assert_git_version(minimum_version: str) -> None:

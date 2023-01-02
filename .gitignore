@@ -4,3 +4,6 @@ __pycache__/
 
 # Vi
 *.swp
+
+# Hypothesis
+/.hypothesis/

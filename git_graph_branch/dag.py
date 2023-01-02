@@ -1,9 +1,33 @@
 # coding=utf-8
 from __future__ import annotations
 
-from typing import Any, Collection, Iterable, Mapping, TypeVar
+from collections import deque
+from itertools import takewhile
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Protocol,
+    TypeVar,
+    overload,
+)
+
+
+class HasLessThan(Protocol):
+    def __lt__(self, __other: Any) -> bool:
+        ...
+
+
+class HasGreaterThan(Protocol):
+    def __gt__(self, __other: Any) -> bool:
+        ...
+
 
 T = TypeVar("T")
+C = TypeVar("C", bound=HasLessThan | HasGreaterThan)
 
 
 class NodeArt:
@@ -168,6 +192,20 @@ def inverted(relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
     return inverse
 
 
+def reachable_from(node: T, *relationships: Mapping[T, Collection[T]]) -> set[T]:
+    all_reachable = {node}
+    todo = [node]
+    while todo:
+        n = todo.pop()
+        for relationship in relationships:
+            for reachable_node in relationship[n]:
+                if reachable_node not in all_reachable:
+                    todo.append(reachable_node)
+                    all_reachable.add(reachable_node)
+    all_reachable.remove(node)
+    return all_reachable
+
+
 def add_node_art(
     nodes: list[T], parents: Mapping[T, Collection[T]], children: Mapping[T, set[T]]
 ) -> list[tuple[NodeArt, T]]:
@@ -208,3 +246,87 @@ def add_node_art(
         grid.append((NodeArt(at, up=up, down=down, through=through), b))
     grid.reverse()
     return grid
+
+
+def lt(value: C) -> Callable[[C], bool]:
+    try:
+        return getattr(value, "__lt__")  # type: ignore
+    except AttributeError:
+        gt = getattr(value, "__gt__")
+
+        def lt(k: Any) -> bool:
+            return not gt(k)
+
+        return lt
+
+
+def priority_key(node_key: C, blocked_keys: Iterator[list[C]]) -> list[C]:
+    """A "priority" key that inherits the priority of blocked nodes.
+
+    For instance, in this case, a low-priority node is blocking two higher-
+    priority nodes, so gets a key of slightly higher priority than both:
+    >>> priority_key(1, [[2], [3]])
+    [3, 1]
+    """
+    blocked_key: list[C] = max(blocked_keys, default=[])
+    return [*takewhile(lt(node_key), blocked_key), node_key]
+
+
+@overload
+def partially_ordered(
+    parents: Mapping[T, Collection[T]],
+    children: Mapping[T, Collection[T]],
+    key: Callable[[T], C],
+) -> list[T]:
+    ...
+
+
+@overload
+def partially_ordered(
+    parents: Mapping[C, Collection[C]],
+    children: Mapping[C, Collection[C]],
+    key: None = ...,
+) -> list[C]:
+    ...
+
+
+def partially_ordered(
+    parents: Mapping[T, Collection[T]],
+    children: Mapping[T, Collection[T]],
+    key: Callable[[T], C] | None = None,
+) -> list[T]:
+    """Partially order nodes so children always precede parents.
+
+    Larger nodes (according to < on the nodes, or their key if a key function is
+    given) will be preferentially placed first, all other things being equal.
+    """
+    keys: dict[T, C] = {node: key(node) if key else node for node in parents}
+    priority_keys: dict[T, tuple[C, list[C]]] = {}
+    remaining = set(parents)
+
+    while remaining:
+        some_node = next(iter(remaining))
+        todo = deque(reachable_from(some_node, parents, children))
+        todo.append(some_node)
+        cluster_key = max(keys[node] for node in todo)
+        seen = set()  # Loop detection
+
+        while todo:
+            node = todo.pop()
+            if node not in remaining:
+                continue
+            missing = [p for p in parents[node] if p in remaining]
+            if missing and node not in seen:
+                seen.add(node)
+                todo.append(node)
+                todo.extend(missing)
+            else:
+                # If node in seen, we have a loop; fail gracefully
+                pkey: list[C] = priority_key(
+                    keys[node],
+                    (priority_keys[p][1] for p in parents[node] if p in priority_keys),
+                )
+                priority_keys[node] = (cluster_key, pkey)
+                remaining.remove(node)
+
+    return sorted(priority_keys, key=priority_keys.__getitem__, reverse=True)
