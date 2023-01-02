@@ -22,6 +22,10 @@ class Commit:
     def message(self) -> bytes:
         return self._git_object().message
 
+    @property
+    def timestamp(self) -> int:
+        return self._git_object().timestamp
+
     def _git_object(self) -> GitObject:
         if self._cached_git_object is None:
             filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]

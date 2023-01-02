@@ -330,3 +330,42 @@ def partially_ordered(
                 remaining.remove(node)
 
     return sorted(priority_keys, key=priority_keys.__getitem__, reverse=True)
+
+
+def sanitized_parents(
+    nodes: Iterable[T], get_parents: Callable[[T], Iterable[T]]
+) -> Mapping[T, set[T]]:
+    node_set = set(nodes)
+    return {b: {p for p in get_parents(b) if b in node_set} for b in node_set}
+
+
+@overload
+def layout(
+    nodes: Iterable[T],
+    get_parents: Callable[[T], Iterable[T]],
+    key: Callable[[T], C],
+) -> list[tuple[NodeArt, T]]:
+    ...
+
+
+@overload
+def layout(
+    nodes: Iterable[C],
+    get_parents: Callable[[C], Iterable[C]],
+    key: None = ...,
+) -> list[tuple[NodeArt, T]]:
+    ...
+
+
+def layout(
+    nodes: Iterable[T],
+    get_parents: Callable[[T], Iterable[T]],
+    key: Callable[[T], C] | None = None,
+) -> list[tuple[NodeArt, T]]:
+    parents = sanitized_parents(nodes, get_parents)
+    children = inverted(parents)
+    node_list = partially_ordered(parents, children, key)  # type: ignore
+    return add_node_art(node_list, parents, children)
+
+
+__all__ = ["layout"]

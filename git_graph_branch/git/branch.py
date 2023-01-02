@@ -17,6 +17,8 @@ class Branch:
         self._ref = ref if isinstance(ref, Path) else git_dir() / "refs" / "heads" / ref
         # Used frequently enough to eagerly cache
         self.name = self._ref.relative_to(git_dir() / "refs" / "heads").as_posix()
+        # Lazily cached
+        self._cached_commit: Commit | None = None
 
     def __str__(self) -> str:
         return self.name
@@ -38,8 +40,14 @@ class Branch:
 
     @property
     def commit(self) -> Commit:
-        with open(self._ref, "r", encoding="ascii") as f:
-            return Commit(f.readline().strip())
+        if self._cached_commit is None:
+            with open(self._ref, "r", encoding="ascii") as f:
+                self._cached_commit = Commit(f.readline().strip())
+        return self._cached_commit
+
+    @property
+    def timestamp(self) -> int:
+        return self.commit.timestamp
 
     @property
     def upstream(self) -> "Branch | None":
