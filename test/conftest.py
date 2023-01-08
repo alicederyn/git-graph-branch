@@ -1,13 +1,47 @@
+from __future__ import annotations
+
+import functools
 import os
 from pathlib import Path
 from subprocess import check_call, check_output
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
 
 import hypothesis
 import pytest
 from packaging import version
 
+T = TypeVar("T")
+cache_clear_fns: list[Callable[[], None]] = []
+
 hypothesis.settings.register_profile("thorough", max_examples=1_000)
+
+
+def monkeypatch_functools() -> None:
+    original_cache = functools.cache
+
+    def tracking_cache(
+        user_function: Callable[..., T], /
+    ) -> functools._lru_cache_wrapper[T]:
+        cached_fn = original_cache(user_function)
+        cache_clear_fns.append(cached_fn.cache_clear)
+        return cached_fn
+
+    functools.cache = tracking_cache
+
+
+@pytest.hookimpl(hookwrapper=True)  # type: ignore
+def pytest_collection() -> Iterable[None]:
+    monkeypatch_functools()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def clear_functools_caches() -> Iterable[None]:
+    try:
+        yield
+    finally:
+        for cache_clear in cache_clear_fns:
+            cache_clear()
 
 
 def assert_git_version(minimum_version: str) -> None:
