@@ -1,7 +1,7 @@
 import sys
 from argparse import ArgumentParser
 from logging import getLogger
-from typing import TypeVar
+from typing import Sequence, TypeVar
 
 from .dag import layout
 from .git import branches
@@ -22,10 +22,10 @@ def optional_to_iterable(value: T | None) -> list[T]:
     return [value] if value is not None else []
 
 
-def main() -> None:
+def main(args: Sequence[str] | None = None) -> None:
     configure_logging()
     try:
-        argument_parser().parse_args()
+        argument_parser().parse_args(args)
 
         art_and_branches = layout(
             branches(),

@@ -1,3 +1,4 @@
+from datetime import datetime
 from subprocess import check_call, check_output
 from typing import Optional
 
@@ -7,12 +8,21 @@ def head_hash() -> str:
 
 
 def git_test_commit(
-    *filenames: str, amend: bool = False, message: Optional[str] = None
+    *filenames: str,
+    amend: bool = False,
+    date: Optional[datetime] = None,
+    message: Optional[str] = None,
 ) -> str:
     """Creates a test commit, appending to given files.
 
-    If amend is True, instead amends the previous commit.
-    If message is given, uses it for the commit message.
+    Parameters
+    ----------
+    amend
+        Amend the previous commit instead of creating a new one.
+    date
+        Author date.
+    message
+        The commit message. Default varies based on the action performed.
     """
     for filename in filenames:
         with open(filename, "a") as f:
@@ -26,6 +36,8 @@ def git_test_commit(
         args = ["-m", message or f"Modified {', '.join(filenames)}"]
     else:
         args = ["--allow-empty", "-m", message or "Blank commit"]
+    if date:
+        args.extend(["--date", date.isoformat()])
     check_call(["git", "commit", "-q", *args])
     return head_hash()
 
