@@ -23,12 +23,12 @@ class GitObject:
         while line := next(lines):
             if line.startswith(b"parent "):
                 parents.append(line.removeprefix(b"parent ").decode("ascii"))
-            elif line.startswith(b"committer "):
+            elif line.startswith(b"author "):
                 m = TIMESTAMP.search(line)
                 if not m:
-                    raise Exception("Possible corruption: unparseable committer line")
+                    raise Exception("Possible corruption: unparseable author line")
                 timestamp = int(m.group(1))
         if timestamp is None:
-            raise Exception("Possible corruption: missing timestamp")
+            raise Exception("Possible corruption: missing author date")
         message = b"\n".join(lines)
         return cls(timestamp=timestamp, parents=tuple(parents), message=message)

@@ -68,6 +68,6 @@ def test_comment_multiline() -> None:
     )
 
 
-def test_timestamp() -> None:
+def test_timestamp_is_author_timestamp() -> None:
     output = GitObject.decode(COMMIT_NO_PARENT)
-    assert output.timestamp == 1649018473
+    assert output.timestamp == 1648890856

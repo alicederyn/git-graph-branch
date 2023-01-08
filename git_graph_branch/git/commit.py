@@ -24,6 +24,10 @@ class Commit:
 
     @property
     def timestamp(self) -> int:
+        """The author date of the commit.
+
+        This (unlike the commit date) is preserved across rebases and cherry-picks.
+        """
         return self._git_object().timestamp
 
     def _git_object(self) -> GitObject:
