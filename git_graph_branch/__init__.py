@@ -1,9 +1,10 @@
 import sys
-from argparse import ArgumentParser
+from argparse import SUPPRESS, ArgumentParser
 from logging import getLogger
 from typing import Sequence, TypeVar
 
 from .dag import layout
+from .display import Config, print_branch
 from .git import branches
 from .log_config import configure_logging
 
@@ -11,11 +12,20 @@ LOG = getLogger(__name__)
 T = TypeVar("T")
 
 
-def argument_parser() -> ArgumentParser:
+def parse_args(args: Sequence[str] | None, *, is_tty: bool) -> Config:
+    defaults = Config(is_tty=is_tty)
     p = ArgumentParser(
         prog="git-graph-branch", description="Pretty-print branch metadata"
     )
-    return p
+    p.add_argument(
+        "--color",
+        action="store_true",
+        dest="color",
+        default=defaults.color,
+        help="Display colorized output; defaults to true if the output is a TTY",
+    )
+    p.add_argument("--no-color", action="store_false", dest="color", help=SUPPRESS)
+    return p.parse_args(args=args, namespace=defaults)
 
 
 def optional_to_iterable(value: T | None) -> list[T]:
@@ -23,9 +33,10 @@ def optional_to_iterable(value: T | None) -> list[T]:
 
 
 def main(args: Sequence[str] | None = None) -> None:
+    is_tty = sys.stdout.isatty()
     configure_logging()
     try:
-        argument_parser().parse_args(args)
+        config = parse_args(args, is_tty=is_tty)
 
         art_and_branches = layout(
             branches(),
@@ -34,7 +45,7 @@ def main(args: Sequence[str] | None = None) -> None:
         )
 
         for art, b in art_and_branches:
-            print(f"{art}  {b.name}")
+            print_branch(art, b, config)
     except Exception as e:
         LOG.fatal(str(e))
         sys.exit(1)
