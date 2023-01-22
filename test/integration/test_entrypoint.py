@@ -7,14 +7,14 @@ import pytest
 
 from git_graph_branch import main
 
-from ..unit.git.utils import git_test_commit
+from ..unit.git.utils import git_remote_repo, git_test_commit
 
 
 @pytest.mark.usefixtures("repo")
 def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
     start_datetime = datetime(2022, 11, 23, 12, 1, tzinfo=ZoneInfo("Europe/London"))
 
-    git_test_commit(date=start_datetime)
+    main_commit = git_test_commit(date=start_datetime)
     check_call(["git", "checkout", "main", "-b", "feature1"])
     git_test_commit(date=start_datetime + timedelta(minutes=2))
     check_call(["git", "checkout", "feature1", "-b", "feature2"])
@@ -23,6 +23,8 @@ def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
     git_test_commit(date=start_datetime + timedelta(minutes=4))
     check_call(["git", "checkout", "feature3", "-b", "feature4"])
     git_test_commit(date=start_datetime + timedelta(minutes=1))
+    git_remote_repo("upstream", main=main_commit)
+    check_call(["git", "branch", "main", "--set-upstream-to", "upstream/main"])
     expected = """\
         ┬  feature4
         ┼  feature3

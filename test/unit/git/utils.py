@@ -1,5 +1,7 @@
 from datetime import datetime
+from shutil import copytree, rmtree
 from subprocess import check_call, check_output
+from tempfile import TemporaryDirectory
 from typing import Optional
 
 
@@ -46,3 +48,16 @@ def git_test_merge(*refs: str) -> str:
     """Create a test merge commit."""
     check_call(["git", "merge", *refs, "-qm", f"Merge {', '.join(refs)}"])
     return head_hash()
+
+
+def git_remote_repo(remote: str, /, **branches: str) -> None:
+    with TemporaryDirectory(
+        prefix="git_graph_branch_test", suffix=remote
+    ) as remote_repo:
+        check_call(["git", "init"], cwd=remote_repo)
+        rmtree(f"{remote_repo}/.git/objects")
+        copytree(".git/objects", f"{remote_repo}/.git/objects")
+        for branch, commit in branches.items():
+            check_call(["git", "branch", branch, commit], cwd=remote_repo)
+        check_call(["git", "remote", "add", remote, remote_repo])
+        check_call(["git", "fetch", remote])

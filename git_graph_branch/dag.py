@@ -333,7 +333,7 @@ def partially_ordered(
 
 
 def sanitized_parents(
-    nodes: Iterable[T], get_parents: Callable[[T], Iterable[T]]
+    nodes: Iterable[T], get_parents: Callable[[T], Iterable[Any]]
 ) -> Mapping[T, set[T]]:
     node_set = set(nodes)
     return {b: {p for p in get_parents(b) if p in node_set} for b in node_set}
@@ -342,7 +342,7 @@ def sanitized_parents(
 @overload
 def layout(
     nodes: Iterable[T],
-    get_parents: Callable[[T], Iterable[T]],
+    get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C],
 ) -> list[tuple[NodeArt, T]]:
     ...
@@ -351,7 +351,7 @@ def layout(
 @overload
 def layout(
     nodes: Iterable[C],
-    get_parents: Callable[[C], Iterable[C]],
+    get_parents: Callable[[C], Iterable[Any]],
     key: None = ...,
 ) -> list[tuple[NodeArt, T]]:
     ...
@@ -359,7 +359,7 @@ def layout(
 
 def layout(
     nodes: Iterable[T],
-    get_parents: Callable[[T], Iterable[T]],
+    get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C] | None = None,
 ) -> list[tuple[NodeArt, T]]:
     parents = sanitized_parents(nodes, get_parents)

@@ -1,4 +1,4 @@
-from .branch import Branch, branches
+from .branch import Branch, RemoteBranch, branches
 from .commit import Commit
 
-__all__ = ["Branch", "Commit", "branches"]
+__all__ = ["Branch", "Commit", "RemoteBranch", "branches"]
