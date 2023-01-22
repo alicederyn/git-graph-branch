@@ -336,7 +336,7 @@ def sanitized_parents(
     nodes: Iterable[T], get_parents: Callable[[T], Iterable[T]]
 ) -> Mapping[T, set[T]]:
     node_set = set(nodes)
-    return {b: {p for p in get_parents(b) if b in node_set} for b in node_set}
+    return {b: {p for p in get_parents(b) if p in node_set} for b in node_set}
 
 
 @overload
