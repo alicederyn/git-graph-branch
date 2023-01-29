@@ -23,6 +23,14 @@ class Commit:
         return self._git_object().message
 
     @property
+    def commit_date(self) -> int:
+        """The commit date.
+
+        This is not preserved across rebases and cherry-picks.
+        """
+        return self._git_object().commit_date
+
+    @property
     def timestamp(self) -> int:
         """The author date of the commit.
 
