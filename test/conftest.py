@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from subprocess import check_call, check_output
 from typing import Callable, Iterable, TypeVar
+from unittest.mock import patch
 
 import hypothesis
 import pytest
@@ -55,8 +56,11 @@ def assert_git_version(minimum_version: str) -> None:
 
 
 @pytest.fixture
-def temp_working_dir(request: pytest.FixtureRequest, tmp_path: Path) -> Iterable[Path]:
+def temp_working_dir(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Iterable[Path]:
     assert_git_version("2.28")  # Needed for `git branch -m` to succeed
+    tmp_path = tmp_path_factory.mktemp("repo")
     os.chdir(tmp_path)
     try:
         os.mkdir(".git")  # Tests write temp files here
@@ -73,3 +77,10 @@ def repo(temp_working_dir: Path) -> Iterable[Path]:
     check_call(["git", "config", "user.email", "unit-test-runner@example.com"])
     check_call(["git", "config", "user.name", "Unit Test Runner"])
     yield temp_working_dir
+
+
+@pytest.fixture
+def home_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterable[Path]:
+    home_dir = Path(tmp_path_factory.mktemp("home"))
+    with patch.object(Path, "home", new=lambda: home_dir):
+        yield home_dir
