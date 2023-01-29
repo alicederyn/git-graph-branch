@@ -25,6 +25,16 @@ def parse_args(args: Sequence[str] | None, *, is_tty: bool) -> Config:
         help="Display colorized output; defaults to true if the output is a TTY",
     )
     p.add_argument("--no-color", action="store_false", dest="color", help=SUPPRESS)
+    p.add_argument(
+        "--remote-icons",
+        action="store_true",
+        dest="remote_icons",
+        default=defaults.remote_icons,
+        help="Display remote status icon; defaults to true if the output is a TTY",
+    )
+    p.add_argument(
+        "--no-remote-icons", action="store_false", dest="remote_icons", help=SUPPRESS
+    )
     return p.parse_args(args=args, namespace=defaults)
 
 

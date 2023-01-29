@@ -88,3 +88,7 @@ def config() -> Config:
             parse_config(config_file, config)
 
     return config
+
+
+def remote_push_default() -> str | None:
+    return config().get("remote", {}).get("pushdefault")

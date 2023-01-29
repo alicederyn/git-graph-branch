@@ -35,6 +35,10 @@ class Ref:
     def __hash__(self) -> int:
         return hash(self._ref)
 
+    def exists(self) -> bool:
+        """Whether this reference exists."""
+        return self._ref.exists()
+
     @property
     def commit(self) -> Commit:
         if self._cached_commit is None:
