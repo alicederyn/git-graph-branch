@@ -5,12 +5,15 @@ import os
 from pathlib import Path
 from subprocess import check_call, check_output
 from textwrap import dedent
-from typing import Callable, Iterable, TypeVar
+from typing import TYPE_CHECKING, Callable, Iterable, TypeVar
 from unittest.mock import patch
 
 import hypothesis
 import pytest
 from packaging import version
+
+if TYPE_CHECKING:
+    from git_graph_branch.ixnay.testing import ManualObserver
 
 T = TypeVar("T")
 cache_clear_fns: list[Callable[[], None]] = []
@@ -97,3 +100,11 @@ def repo(home_dir: Path, temp_working_dir: Path) -> Iterable[Path]:
     check_call(["git", "config", "user.email", "unit-test-runner@example.com"])
     check_call(["git", "config", "user.name", "Unit Test Runner"])
     yield temp_working_dir
+
+
+@pytest.fixture
+def manual_observer() -> Iterable[ManualObserver]:
+    from git_graph_branch.ixnay.testing import patch_manual_observer
+
+    with patch_manual_observer() as manual_observer:
+        yield manual_observer
