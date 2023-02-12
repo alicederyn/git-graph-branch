@@ -12,6 +12,10 @@ from git_graph_branch import main
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
 
+def config_setup() -> None:
+    check_call(["git", "config", "--global", "remote.pushdefault", "origin"])
+
+
 def repo_setup() -> None:
     start_datetime = datetime(2022, 11, 23, 12, 1, tzinfo=ZoneInfo("Europe/London"))
 
@@ -35,6 +39,7 @@ def repo_setup() -> None:
 
 @pytest.mark.usefixtures("repo")
 def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
+    config_setup()
     repo_setup()
     expected = """\
         ┬  feature4
@@ -54,6 +59,7 @@ def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
 @pytest.mark.usefixtures("repo")
 @patch("sys.stdout.isatty", new=lambda: True)
 def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None:
+    config_setup()
     repo_setup()
     expected = """\
         ┬  \x1b[35mfeature4\x1b[0m

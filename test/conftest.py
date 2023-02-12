@@ -4,6 +4,7 @@ import functools
 import os
 from pathlib import Path
 from subprocess import check_call, check_output
+from textwrap import dedent
 from typing import Callable, Iterable, TypeVar
 from unittest.mock import patch
 
@@ -70,17 +71,29 @@ def temp_working_dir(
 
 
 @pytest.fixture
-def repo(temp_working_dir: Path) -> Iterable[Path]:
+def home_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterable[Path]:
+    home_dir = Path(tmp_path_factory.mktemp("home"))
+    monkeypatch.setenv("HOME", str(home_dir.absolute()))
+    with patch.object(Path, "home", new=lambda: home_dir):
+        yield home_dir
+
+
+@pytest.fixture
+def repo(home_dir: Path, temp_working_dir: Path) -> Iterable[Path]:
+    global_config = """\
+        [branch]
+          autosetupmerge = always
+        [init]
+          defaultBranch = main
+    """
+    (home_dir / ".gitconfig").write_text(dedent(global_config))
     assert_git_version("2.28")  # Needed for `git branch -m` to succeed
+    check_call(["git", "config", "--global", "init.defaultBranch", "main"])
     check_call(["git", "init", "--quiet"])
     check_call(["git", "branch", "-m", "main"])
     check_call(["git", "config", "user.email", "unit-test-runner@example.com"])
     check_call(["git", "config", "user.name", "Unit Test Runner"])
     yield temp_working_dir
-
-
-@pytest.fixture
-def home_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterable[Path]:
-    home_dir = Path(tmp_path_factory.mktemp("home"))
-    with patch.object(Path, "home", new=lambda: home_dir):
-        yield home_dir
