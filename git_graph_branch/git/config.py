@@ -1,9 +1,9 @@
 import re
-from functools import cache
 from os import environ
 from pathlib import Path
 from typing import Iterator
 
+from ..ixnay import Nixer, watch_path
 from .path import git_dir
 
 Config = dict[str | tuple[str, str], dict[str, str]]
@@ -80,15 +80,20 @@ def config_paths() -> Iterator[Path]:
     yield git_dir() / "config"
 
 
-@cache
-def config() -> Config:
+def config(nixer: Nixer) -> Config:
+    def nix_on_change(path: Path) -> None:
+        if nixer.is_active:
+            root_path = git_dir() if path.is_relative_to(git_dir()) else path
+            watch_path(path, nixer, root_path=root_path)
+
     config: Config = {}
     for config_file in config_paths():
+        nix_on_change(config_file)
         if config_file.exists():
             parse_config(config_file, config)
 
     return config
 
 
-def remote_push_default() -> str | None:
-    return config().get("remote", {}).get("pushdefault")
+def remote_push_default(nixer: Nixer) -> str | None:
+    return config(nixer).get("remote", {}).get("pushdefault")

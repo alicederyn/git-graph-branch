@@ -3,11 +3,12 @@ from argparse import Namespace
 from enum import Enum
 from typing import Any
 
-from ansi import color
+from ansi import color, cursor
 
 from .dag import NodeArt
 from .git.branch import Branch, RemoteBranch
 from .git.config import remote_push_default
+from .ixnay import Nixer
 
 
 class Config(Namespace):
@@ -33,7 +34,7 @@ SYNC_STATUS_ICON = {
 }
 
 
-def remote_sync_status(b: Branch) -> SyncStatus:
+def remote_sync_status(nixer: Nixer, b: Branch) -> SyncStatus:
     """Returns whether a branch is in sync with its upstream and downstream remotes.
 
     Only the upstream and pushdefault remotes are considered.
@@ -49,25 +50,30 @@ def remote_sync_status(b: Branch) -> SyncStatus:
         has_remote = True
         if b.upstream.commit.commit_date > b.commit.commit_date:
             return SyncStatus.OUT_OF_SYNC
-    push_remote = remote_push_default()
+    push_remote = remote_push_default(nixer)
     if push_remote:
         downstream = RemoteBranch(push_remote, b.name)
-        if downstream.exists():
+        if downstream.exists(nixer):
             has_remote = True
-            if downstream.commit != b.commit:
+            if downstream.commit(nixer) != b.commit(nixer):
                 return SyncStatus.OUT_OF_SYNC
     return SyncStatus.IN_SYNC if has_remote else SyncStatus.NO_REMOTE
 
 
-def print_branch(art: NodeArt, b: Branch, config: Config) -> None:
+def clear_screen() -> None:
+    print(cursor.erase(2), end="")
+    print(cursor.goto(), end="")
+
+
+def print_branch(nixer: Nixer, art: NodeArt, b: Branch, config: Config) -> None:
     print(f"{art}  ", end="")
     reset = False
-    if config.color and b.is_head:
+    if config.color and b.is_head(nixer):
         print(color.fg.magenta, end="")
         reset = True
     print(b, end="")
     if reset:
         print(color.fx.reset, end="")
     if config.remote_icons:
-        print(SYNC_STATUS_ICON[remote_sync_status(b)], end="")
+        print(SYNC_STATUS_ICON[remote_sync_status(nixer, b)], end="")
     print()

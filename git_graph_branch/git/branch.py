@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from functools import cache
 from pathlib import Path
 from typing import Any, Iterable, TypeGuard, TypeVar, overload
 
+from ..ixnay import Nixer, watch_path
 from .commit import Commit
 from .config import config
 from .path import git_dir
@@ -15,17 +15,16 @@ def all_instances(items: tuple[Any, ...], _type: type[T]) -> TypeGuard[tuple[T, 
     return all(isinstance(v, _type) for v in items)
 
 
-@cache
-def git_head() -> str:
-    return (git_dir() / "HEAD").open(encoding="utf-8").read().strip()
+def git_head(nixer: Nixer) -> str:
+    head_file = git_dir() / "HEAD"
+    watch_path(head_file, nixer, root_path=git_dir())
+    return head_file.open(encoding="utf-8").read().strip()
 
 
 class Ref:
     def __init__(self, ref: Path) -> None:
         self._ref = ref
         self._relative_ref = self._ref.relative_to(git_dir() / "refs")
-        # Lazily cached
-        self._cached_commit: Commit | None = None
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Ref):
@@ -35,23 +34,23 @@ class Ref:
     def __hash__(self) -> int:
         return hash(self._ref)
 
-    def exists(self) -> bool:
+    def exists(self, nixer: Nixer) -> bool:
         """Whether this reference exists."""
+        watch_path(self._ref, nixer, root_path=git_dir())
         return self._ref.exists()
 
-    @property
-    def commit(self) -> Commit:
-        if self._cached_commit is None:
-            with open(self._ref, "r", encoding="ascii") as f:
-                self._cached_commit = Commit(f.readline().strip())
+    def commit(self, nixer: Nixer) -> Commit:
+        watch_path(self._ref, nixer, root_path=git_dir())
+        with open(self._ref, "r", encoding="ascii") as f:
+            self._cached_commit = Commit(f.readline().strip())
         return self._cached_commit
 
-    @property
-    def timestamp(self) -> int:
-        return self.commit.timestamp
+    def timestamp(self, nixer: Nixer) -> int:
+        return self.commit(nixer).timestamp
 
-    def reflog_reversed(self) -> Iterable[Commit]:
+    def reflog_reversed(self, nixer: Nixer) -> Iterable[Commit]:
         reflog = git_dir() / "logs" / "refs" / self._relative_ref
+        watch_path(reflog, nixer, root_path=git_dir())
         with open(reflog, "rb") as f:
             while f.read(41):
                 hash = f.read(40)
@@ -99,13 +98,11 @@ class Branch(Ref):
     def __repr__(self) -> str:
         return f"git.Branch({repr(self.name)})"
 
-    @property
-    def is_head(self) -> bool:
-        return git_head() == f"ref: refs/heads/{self.name}"
+    def is_head(self, nixer: Nixer) -> bool:
+        return git_head(nixer) == f"ref: refs/heads/{self.name}"
 
-    @property
-    def upstream(self) -> Branch | RemoteBranch | None:
-        c = config().get(("branch", self.name), {})
+    def upstream(self, nixer: Nixer) -> Branch | RemoteBranch | None:
+        c = config(nixer).get(("branch", self.name), {})
         remote = c.get("remote", ".")
         merge = c.get("merge")
         if not merge:
@@ -121,8 +118,9 @@ class Branch(Ref):
             return RemoteBranch(remote, upstream_name)
 
 
-def branches() -> Iterable[Branch]:
+def branches(nixer: Nixer) -> Iterable[Branch]:
     heads_dir = git_dir() / "refs" / "heads"
+    watch_path(heads_dir, nixer, root_path=git_dir())
     for p in Path.rglob(heads_dir, "*"):
         if p.is_file():
             yield Branch(p)
