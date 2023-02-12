@@ -3,6 +3,7 @@ from __future__ import annotations
 from asyncio import get_running_loop
 from collections import defaultdict
 from functools import cache
+from itertools import chain
 from pathlib import Path
 from typing import Iterator
 from weakref import WeakKeyDictionary, ref
@@ -55,8 +56,17 @@ class Trackers:
         self.observer.start()  # type: ignore
 
     def __del__(self) -> None:
-        self.observer.unschedule_all()  # type: ignore
-        self.observer.stop()  # type: ignore
+        self._stop()
+
+    def _stop(self) -> None:
+        if self.observer.is_alive():
+            self.observer.unschedule_all()  # type: ignore
+            self.observer.stop()  # type: ignore
+            self.observer.join()
+            for nixer_ref in chain(self.path_by_nixer.keys(), self.todo):
+                nixer = nixer_ref()
+                if nixer is not None:
+                    nixer.nix()
 
     def register_path(self, path: Path) -> None:
         try:

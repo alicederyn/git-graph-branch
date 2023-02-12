@@ -24,6 +24,9 @@ class _FakeThread(BaseThread):
         self.on_thread_stop()  # type: ignore
         self._pretend_to_be_running = False
 
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
     def is_alive(self) -> bool:
         return self._pretend_to_be_running
 
@@ -68,4 +71,9 @@ def patch_manual_observer() -> Iterator[ManualObserver]:
         event_loop = Mock(AbstractEventLoop)
         event_loop.call_soon_threadsafe.side_effect = lambda callable: callable()
         get_running_loop.return_value = event_loop
-        yield observer
+        try:
+            yield observer
+        finally:
+            if _trackers.cache_info().currsize == 1:
+                _trackers()._stop()
+                _trackers.cache_clear()

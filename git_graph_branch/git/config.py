@@ -3,7 +3,7 @@ from os import environ
 from pathlib import Path
 from typing import Iterator
 
-from ..ixnay import Nixer, watch_path
+from ..ixnay import Nixer, cache, watch_path
 from .path import git_dir
 
 Config = dict[str | tuple[str, str], dict[str, str]]
@@ -80,6 +80,7 @@ def config_paths() -> Iterator[Path]:
     yield git_dir() / "config"
 
 
+@cache
 def config(nixer: Nixer) -> Config:
     def nix_on_change(path: Path) -> None:
         if nixer.is_active:
