@@ -1,16 +1,22 @@
+from collections.abc import Mapping
 from enum import Enum
 from functools import cache
 from io import BufferedIOBase, BufferedReader
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Iterable, Type
+from typing import BinaryIO, Iterator, Type
 
 from .bloom import Bloom
 from .decode import apply_delta, decompress, read_offset, read_size
 from .path import git_dir
 
 
-class PackIndex:
+def hash_bytes_to_str(hash: bytes) -> str:
+    assert len(hash) <= 20
+    return hash.hex().rjust(40, "0")
+
+
+class PackIndex(Mapping[str, int]):
     def __init__(self, path: Path):
         self._path = path
         self._cache: dict[str, int] = {}
@@ -52,6 +58,19 @@ class PackIndex:
                 self._bloom.add(self._f.read(20))
         return self._f
 
+    def __len__(self) -> int:
+        # Read fanout[255] to determine number of hashes
+        f = self._open()
+        f.seek(4 + 4 * 256)
+        return int.from_bytes(f.read(4), byteorder="big", signed=False)
+
+    def __iter__(self) -> Iterator[str]:
+        length = len(self)
+        assert self._f
+        for offset in range(0x408, 0x408 + 20 * length, 20):
+            self._f.seek(offset)
+            yield hash_bytes_to_str(self._f.read(20))
+
     def _find_index(self, hash: bytes) -> int:
         assert self._f
 
@@ -76,7 +95,7 @@ class PackIndex:
             else:
                 start = mid + 1
 
-        raise KeyError(bytes.hex(hash))
+        raise KeyError(hash_bytes_to_str(hash))
 
     def __getitem__(self, hash: str) -> int:
         if not (isinstance(hash, str)):
@@ -99,13 +118,6 @@ class PackIndex:
             self._cache[hash] = size
         return self._cache[hash]
 
-    def __contains__(self, hash: str) -> bool:
-        try:
-            self.__getitem__(hash)
-            return True
-        except KeyError:
-            return False
-
 
 class ObjectKind(Enum):
     COMMIT = 1
@@ -127,7 +139,7 @@ class DataObject:
         self.length = length
 
     @property
-    def compressed_data(self) -> Iterable[bytes]:
+    def compressed_data(self) -> Iterator[bytes]:
         if self._f.tell() != self._offset:
             self._f.seek(self._offset)
         yield from self._f
@@ -148,7 +160,7 @@ class Delta:
         self.length = length
 
     @property
-    def compressed_instructions(self) -> Iterable[bytes]:
+    def compressed_instructions(self) -> Iterator[bytes]:
         if self._f.tell() != self._offset:
             self._f.seek(self._offset)
         for b in self._f:

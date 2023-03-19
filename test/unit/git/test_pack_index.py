@@ -50,6 +50,19 @@ def test_getitem_large_offsets() -> None:
         assert index["0fb0b0931ef42707965bfe4e1f66c9ae29ca60ca"] == 0x1_F026_D8EE
 
 
+def test_length() -> None:
+    with PackIndex(DATA_DIR / "large.idx") as index:
+        assert len(index) == 93
+
+
+def test_iteration() -> None:
+    with PackIndex(DATA_DIR / "large.idx") as index:
+        hashes = set(hash for hash in index)
+    assert len(hashes) == 93
+    assert "29aef9f41d76fce0c60376613b548901379ccd1d" in hashes
+    assert "0fb0b0931ef42707965bfe4e1f66c9ae29ca60ca" in hashes
+
+
 def test_misses_do_not_reopen_file(tmp_path: Path) -> None:
     # Copy the test index to a temporary location
     index_copy = tmp_path / "example.index"
