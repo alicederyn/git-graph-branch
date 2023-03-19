@@ -90,10 +90,10 @@ class PackIndex:
             f.seek(self._small_offsets_table + idx * 4)
             short_bytes = f.read(4)
             short_size = int.from_bytes(short_bytes, byteorder="big", signed=False)
-            if short_size < 0x8000:
+            if short_size < 0x80000000:
                 size = short_size
             else:
-                f.seek(self._large_offsets_table + 8 * (size - 0x8000))
+                f.seek(self._large_offsets_table + 8 * (short_size - 0x80000000))
                 long_bytes = f.read(8)
                 size = int.from_bytes(long_bytes, byteorder="big", signed=False)
             self._cache[hash] = size
