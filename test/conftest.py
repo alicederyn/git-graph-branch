@@ -31,7 +31,7 @@ def monkeypatch_functools() -> None:
     functools.cache = tracking_cache
 
 
-@pytest.hookimpl(hookwrapper=True)  # type: ignore
+@pytest.hookimpl(hookwrapper=True)
 def pytest_collection() -> Iterable[None]:
     monkeypatch_functools()
     yield
