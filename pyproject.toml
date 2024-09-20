@@ -23,7 +23,10 @@ addopts = "--doctest-modules"
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["I"]
+select = ["E", "F", "I"]
+ignore = [
+    "E501",  # Line too long
+]
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements.txt" }
