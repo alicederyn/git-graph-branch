@@ -11,9 +11,6 @@ dynamic = ["dependencies"]
 [project.scripts]
 git-graph-branch = "git_graph_branch:main"
 
-[tool.isort]
-profile = "black"
-
 [tool.mypy]
 python_version = "3.12"
 strict = "True"
@@ -24,6 +21,9 @@ addopts = "--doctest-modules"
 
 [tool.ruff]
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["I"]
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements.txt" }
