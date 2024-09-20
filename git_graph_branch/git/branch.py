@@ -61,12 +61,10 @@ class Ref:
 
 class RemoteBranch(Ref):
     @overload
-    def __init__(self, path: Path, /) -> None:
-        ...
+    def __init__(self, path: Path, /) -> None: ...
 
     @overload
-    def __init__(self, remote: str, branch: str, /) -> None:
-        ...
+    def __init__(self, remote: str, branch: str, /) -> None: ...
 
     def __init__(self, *args: Path | str) -> None:
         if len(args) == 1:

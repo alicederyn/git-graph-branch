@@ -17,13 +17,11 @@ from typing import (
 
 
 class HasLessThan(Protocol):
-    def __lt__(self, __other: Any) -> bool:
-        ...
+    def __lt__(self, __other: Any) -> bool: ...
 
 
 class HasGreaterThan(Protocol):
-    def __gt__(self, __other: Any) -> bool:
-        ...
+    def __gt__(self, __other: Any) -> bool: ...
 
 
 T = TypeVar("T")
@@ -277,8 +275,7 @@ def partially_ordered(
     parents: Mapping[T, Collection[T]],
     children: Mapping[T, Collection[T]],
     key: Callable[[T], C],
-) -> list[T]:
-    ...
+) -> list[T]: ...
 
 
 @overload
@@ -286,8 +283,7 @@ def partially_ordered(
     parents: Mapping[C, Collection[C]],
     children: Mapping[C, Collection[C]],
     key: None = ...,
-) -> list[C]:
-    ...
+) -> list[C]: ...
 
 
 def partially_ordered(
@@ -344,8 +340,7 @@ def layout(
     nodes: Iterable[T],
     get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C],
-) -> list[tuple[NodeArt, T]]:
-    ...
+) -> list[tuple[NodeArt, T]]: ...
 
 
 @overload
@@ -353,8 +348,7 @@ def layout(
     nodes: Iterable[C],
     get_parents: Callable[[C], Iterable[Any]],
     key: None = ...,
-) -> list[tuple[NodeArt, T]]:
-    ...
+) -> list[tuple[NodeArt, T]]: ...
 
 
 def layout(
