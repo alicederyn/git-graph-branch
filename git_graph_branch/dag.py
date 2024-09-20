@@ -348,7 +348,7 @@ def layout(
     nodes: Iterable[C],
     get_parents: Callable[[C], Iterable[Any]],
     key: None = ...,
-) -> list[tuple[NodeArt, T]]: ...
+) -> list[tuple[NodeArt, C]]: ...
 
 
 def layout(
