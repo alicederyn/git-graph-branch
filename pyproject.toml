@@ -5,7 +5,7 @@ description = "Terminal tool to graph git branches and branch metadata"
 authors = [
     { name = "Alice Purcell", email = "Alice.Purcell.39@gmail.com" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dynamic = ["dependencies"]
 
 [project.scripts]
@@ -15,6 +15,7 @@ git-graph-branch = "git_graph_branch:main"
 profile = "black"
 
 [tool.mypy]
+python_version = "3.12"
 strict = "True"
 files = "git_graph_branch,test"
 
