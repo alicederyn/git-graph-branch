@@ -1,7 +1,9 @@
+import pdb
 import sys
 from argparse import SUPPRESS, ArgumentParser
 from logging import getLogger
-from typing import Sequence, TypeVar
+from types import TracebackType
+from typing import Sequence, Type, TypeVar
 
 from .dag import layout
 from .display import Config, print_branch
@@ -35,7 +37,18 @@ def parse_args(args: Sequence[str] | None, *, is_tty: bool) -> Config:
     p.add_argument(
         "--no-remote-icons", action="store_false", dest="remote_icons", help=SUPPRESS
     )
+    p.add_argument("--pdb", action="store_true", dest="pdb", help=SUPPRESS)
     return p.parse_args(args=args, namespace=defaults)
+
+
+def invoke_pdb_excepthook(
+    exc_type: Type[BaseException],
+    exc_value: BaseException,
+    exc_traceback: TracebackType | None,
+) -> None:
+    """Invoke pdb on uncaught exceptions."""
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+    pdb.post_mortem(exc_traceback)
 
 
 def optional_to_iterable(value: T | None) -> list[T]:
@@ -47,7 +60,8 @@ def main(args: Sequence[str] | None = None) -> None:
     configure_logging()
     try:
         config = parse_args(args, is_tty=is_tty)
-
+        if config.pdb:
+            sys.excepthook = invoke_pdb_excepthook
         art_and_branches = layout(
             branches(),
             get_parents=lambda b: optional_to_iterable(b.upstream),
