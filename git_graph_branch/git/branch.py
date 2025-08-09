@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from functools import cache
+from functools import cache, cached_property
 from pathlib import Path
 from typing import Any, Iterable, TypeGuard, TypeVar, overload
 
@@ -20,6 +20,27 @@ def git_head() -> str:
     return (git_dir() / "HEAD").open(encoding="utf-8").read().strip()
 
 
+@cache
+def packed_refs() -> dict[Path, Commit]:
+    def get_path(line: str) -> Path:
+        path = Path(line.split(" ")[1].strip())
+        return path.relative_to("refs/")
+
+    def get_commit(line: str) -> Commit:
+        return Commit(line.split(" ")[0])
+
+    path = git_dir() / "packed-refs"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return {
+                get_path(line): get_commit(line)
+                for line in f
+                if not line.startswith("#")
+            }
+    except FileNotFoundError:
+        return {}
+
+
 class Ref:
     def __init__(self, ref: Path) -> None:
         self._ref = ref
@@ -37,14 +58,18 @@ class Ref:
 
     def exists(self) -> bool:
         """Whether this reference exists."""
-        return self._ref.exists()
+        return self._ref.exists() or self._ref in packed_refs()
 
-    @property
+    @cached_property
     def commit(self) -> Commit:
-        if self._cached_commit is None:
+        try:
             with open(self._ref, "r", encoding="ascii") as f:
-                self._cached_commit = Commit(f.readline().strip())
-        return self._cached_commit
+                return Commit(f.readline().strip())
+        except FileNotFoundError:
+            commit = packed_refs().get(self._relative_ref)
+            if commit is not None:
+                return commit
+            raise
 
     @property
     def timestamp(self) -> int:
