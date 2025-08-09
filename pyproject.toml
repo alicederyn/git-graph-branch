@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dynamic = ["dependencies"]
 
 [project.scripts]
-git-graph-branch = "git_graph_branch:main"
+git-graph-branch = "git_graph_branch.cli:main"
 
 [tool.mypy]
 python_version = "3.12"

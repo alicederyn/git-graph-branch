@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from git_graph_branch import main
+from git_graph_branch.cli import main
 
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
