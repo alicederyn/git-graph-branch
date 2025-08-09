@@ -12,6 +12,7 @@ from typing import (
     Mapping,
     Protocol,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -296,7 +297,7 @@ def partially_ordered(
     Larger nodes (according to < on the nodes, or their key if a key function is
     given) will be preferentially placed first, all other things being equal.
     """
-    keys: dict[T, C] = {node: key(node) if key else node for node in parents}
+    keys: dict[T, C] = {node: key(node) if key else cast(C, node) for node in parents}
     priority_keys: dict[T, tuple[C, list[C]]] = {}
     remaining = set(parents)
 
