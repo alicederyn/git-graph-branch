@@ -1,17 +1,34 @@
+from collections.abc import Iterator
+
 from .decode import decompress
 from .object import GitObject
 from .pack import ObjectKind, packs
 from .path import git_dir
 
 
+class Missing:
+    pass
+
+
+class MissingCommit(Exception):
+    pass
+
+
 class Commit:
     def __init__(self, hash: str):
         self.hash = hash
-        self._cached_git_object: GitObject | None = None
+        self._cached_git_object: GitObject | Missing | None = None
 
     @property
     def parents(self) -> "tuple[Commit, ...]":
         return tuple(Commit(hash) for hash in self._git_object().parents)
+
+    def available_parents(self) -> "Iterator[Commit]":
+        for hash in self._git_object().parents:
+            try:
+                yield Commit(hash)
+            except MissingCommit:
+                continue
 
     @property
     def first_parent(self) -> "Commit | None":
@@ -50,10 +67,10 @@ class Commit:
                     if kind != ObjectKind.COMMIT:
                         raise KeyError()
                 except KeyError:
-                    raise Exception(
-                        "Possible corruption: commit not found: " + self.hash
-                    )
+                    self._cached_git_object = Missing()
             self._cached_git_object = GitObject.decode(data)
+        if isinstance(self._cached_git_object, Missing):
+            raise MissingCommit("Shallow clone: commit not found: " + self.hash)
         return self._cached_git_object
 
     def __str__(self) -> str:
