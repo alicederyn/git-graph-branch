@@ -7,9 +7,9 @@ from ansi import color
 
 from .dag import NodeArt
 from .git.branch import Branch, RemoteBranch
-from .git.config import remote_push_default
 from .git.commit import Commit
 from .git.commit_algos import last_merged_commit
+from .git.config import remote_push_default
 
 
 class Config(Namespace):

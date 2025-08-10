@@ -44,19 +44,19 @@ def test_membership_with_out_of_order_sequence() -> None:
     assert in_window(w, commits) == {e}
     w.add(d)
     assert in_window(w, commits) == {d, e}
-    w.prune_to(d.commit_date + 60)
+    w.prune_to(d.commit_date)
     assert in_window(w, commits) == {d}
     w.add(c)
     assert in_window(w, commits) == {c, d}
-    w.prune_to(c.commit_date + 60)
+    w.prune_to(c.commit_date)
     assert in_window(w, commits) == {c}
     w.add(b)
     assert in_window(w, commits) == {b, c}
-    w.prune_to(b.commit_date + 60)
+    w.prune_to(b.commit_date)
     assert in_window(w, commits) == {b, c}
     w.add(a)
     assert in_window(w, commits) == {a, b, c}
-    w.prune_to(a.commit_date + 60)
+    w.prune_to(a.commit_date)
     assert in_window(w, commits) == {a, b, c}
     w.add(None)
     assert in_window(w, commits) == {a, b, c}
@@ -88,5 +88,5 @@ def test_shallow_clone() -> None:
     w = CommitWindow(d)
     for commit in commits[1:]:
         w.add(commit)
-    w.prune_to(b.commit_date + 60)
+    w.prune_to(b.commit_date)
     assert in_window(w, commits) == {a, b, c}
