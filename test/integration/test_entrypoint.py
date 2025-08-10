@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from git_graph_branch.cli import main
+from git_graph_branch.cli import amain
 
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
@@ -38,7 +38,7 @@ def repo_setup() -> None:
 
 
 @pytest.mark.usefixtures("repo")
-def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
     config_setup()
     repo_setup()
     expected = """\
@@ -49,7 +49,7 @@ def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
         ┴  main
     """
 
-    main([])
+    await amain([])
 
     out, err = capsys.readouterr()
     assert out == dedent(expected)
@@ -58,7 +58,7 @@ def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
 
 @pytest.mark.usefixtures("repo")
 @patch("sys.stdout.isatty", new=lambda: True)
-def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None:
     config_setup()
     repo_setup()
     expected = """\
@@ -69,7 +69,7 @@ def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None
         ┴  main 🔷
     """
 
-    main([])
+    await amain([])
 
     out, err = capsys.readouterr()
     assert out == dedent(expected)

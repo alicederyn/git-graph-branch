@@ -14,6 +14,8 @@ class Config(Namespace):
     color: bool
     is_tty: bool
     remote_icons: bool
+    watch: bool = False
+    poll_every: float = 1.0
 
     def __init__(self, *, is_tty: bool = False, **kwargs: Any) -> None:
         defaults = {"color": is_tty, "remote_icons": is_tty}
