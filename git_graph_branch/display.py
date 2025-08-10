@@ -7,6 +7,8 @@ from ansi import color
 
 from .dag import NodeArt
 from .git.branch import Branch, RemoteBranch
+from .git.commit import Commit
+from .git.commit_algos import last_merged_commit
 from .git.config import remote_push_default
 
 
@@ -61,6 +63,25 @@ def remote_sync_status(b: Branch) -> SyncStatus:
     return SyncStatus.IN_SYNC if has_remote else SyncStatus.NO_REMOTE
 
 
+def first_parent_distance(commit: Commit, target: Commit) -> int:
+    c: Commit | None = commit
+    distance = 0
+    while c is not None and c != target:
+        c = c.first_parent
+        distance += 1
+    return distance
+
+
+def compute_unmerged(b: Branch) -> int:
+    upstream = b.upstream
+    if upstream is None:
+        return 0
+    last_merged = last_merged_commit(upstream.commit, b.commit)
+    if last_merged is None:
+        return 0
+    return first_parent_distance(upstream.commit, last_merged)
+
+
 def print_branch(art: NodeArt, b: Branch, config: Config) -> None:
     print(f"{art}  ", end="")
     reset = False
@@ -72,4 +93,12 @@ def print_branch(art: NodeArt, b: Branch, config: Config) -> None:
         print(color.fx.reset, end="")
     if config.remote_icons:
         print(SYNC_STATUS_ICON[remote_sync_status(b)], end="")
+
+    unmerged = compute_unmerged(b)
+    if unmerged > 0:
+        if config.color:
+            print(color.fg.boldred, end="")
+        print(f" [{unmerged} unmerged]", end="")
+        if config.color:
+            print(color.fx.reset, end="")
     print()
