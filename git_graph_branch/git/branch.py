@@ -35,7 +35,8 @@ def packed_refs() -> dict[Path, Commit]:
             return {
                 get_path(line): get_commit(line)
                 for line in f
-                if not line.startswith("#")
+                if not line.startswith("#")  # comment
+                and not line.startswith("^")  # peeled ref (used for tags)
             }
     except FileNotFoundError:
         return {}
@@ -58,7 +59,7 @@ class Ref:
 
     def exists(self) -> bool:
         """Whether this reference exists."""
-        return self._ref.exists() or self._ref in packed_refs()
+        return self._ref.exists() or self._relative_ref in packed_refs()
 
     @cached_property
     def commit(self) -> Commit:
