@@ -6,8 +6,8 @@ from typing import Any, Iterator, TypeGuard, TypeVar, overload
 
 from .commit import Commit
 from .config import config
-from .file_algos import readlines_reversed
 from .path import git_dir
+from .reflog import ReflogEntry, iter_reflog
 
 T = TypeVar("T")
 
@@ -77,11 +77,9 @@ class Ref:
     def timestamp(self) -> int:
         return self.commit.timestamp
 
-    def reflog(self) -> Iterator[Commit]:
+    def reflog(self) -> Iterator[ReflogEntry]:
         reflog = git_dir() / "logs" / "refs" / self._relative_ref
-        for line in readlines_reversed(reflog):
-            hash = line[41:81]
-            yield Commit(hash)
+        return iter_reflog(reflog)
 
 
 class RemoteBranch(Ref):
