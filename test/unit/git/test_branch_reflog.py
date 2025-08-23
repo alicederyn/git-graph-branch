@@ -6,7 +6,7 @@ from git_graph_branch.git import Branch, Commit
 from .utils import git_test_commit
 
 
-def test_reflog_reversed(repo: Path) -> None:
+def test_reflog(repo: Path) -> None:
     commits = []
     for i in range(10):
         hash = git_test_commit(message=f"Commit {i}")
@@ -17,4 +17,4 @@ def test_reflog_reversed(repo: Path) -> None:
         hash = git_test_commit(message=f"Commit {i + 10}")
         commits.append(Commit(hash))
 
-    assert commits == list(Branch("main").reflog_reversed())
+    assert list(reversed(commits)) == list(Branch("main").reflog())

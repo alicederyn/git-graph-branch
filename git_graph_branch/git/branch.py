@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from functools import cache, cached_property
 from pathlib import Path
-from typing import Any, Iterable, TypeGuard, TypeVar, overload
+from typing import Any, Iterator, TypeGuard, TypeVar, overload
 
 from .commit import Commit
 from .config import config
+from .file_algos import readlines_reversed
 from .path import git_dir
 
 T = TypeVar("T")
@@ -76,13 +77,11 @@ class Ref:
     def timestamp(self) -> int:
         return self.commit.timestamp
 
-    def reflog_reversed(self) -> Iterable[Commit]:
+    def reflog(self) -> Iterator[Commit]:
         reflog = git_dir() / "logs" / "refs" / self._relative_ref
-        with open(reflog, "rb") as f:
-            while f.read(41):
-                hash = f.read(40)
-                yield Commit(hash.decode("ascii"))
-                f.readline()  # Skip to next line
+        for line in readlines_reversed(reflog):
+            hash = line[41:81]
+            yield Commit(hash)
 
 
 class RemoteBranch(Ref):
@@ -145,7 +144,7 @@ class Branch(Ref):
             return RemoteBranch(remote, upstream_name)
 
 
-def branches() -> Iterable[Branch]:
+def branches() -> Iterator[Branch]:
     heads_dir = git_dir() / "refs" / "heads"
     for p in Path.rglob(heads_dir, "*"):
         if p.is_file():
