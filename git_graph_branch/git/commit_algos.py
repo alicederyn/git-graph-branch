@@ -250,3 +250,26 @@ def unmerged_commits(
             commit = commit.first_parent
     except MissingCommit:
         pass
+
+
+def range(
+    upstream: Commit, downstream: Commit, *, window_size_secs: int = 60
+) -> Iterator[Commit]:
+    """Yields first parents of downstream not reachable from upstream."""
+    seen = CommitSet(upstream)
+    todo = CommitSet(upstream)
+    commit: Commit | None = downstream
+    while commit is not None:
+        seen.remove_newer_than(commit.commit_date + window_size_secs)
+        while todo.has_commit_newer_than(commit.commit_date - window_size_secs):
+            next = todo.pop()
+            for p in next.available_parents():
+                seen.add(p)
+                todo.add(p)
+        if commit in seen:
+            return
+        yield commit
+        try:
+            commit = commit.first_parent
+        except MissingCommit:
+            return
