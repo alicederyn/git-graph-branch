@@ -1,7 +1,7 @@
 from collections.abc import MutableSet
 from functools import total_ordering
 from heapq import heappop, heappush
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .commit import Commit, MissingCommit
 
@@ -32,12 +32,49 @@ class ChronoCommit:
         return -self._key[0] > commit_date
 
 
+class CommitHeap[V]:
+    """Stores a heap of commits, with O(1) access to the newest commit."""
+
+    def __init__(
+        self, still_contains: Callable[[Commit], bool], on_remove: Callable[[Commit], V]
+    ):
+        self._heap: list[ChronoCommit] = []
+        self.still_contains = still_contains
+        self.on_remove = on_remove
+
+    def add(self, commit: Commit) -> None:
+        heappush(self._heap, ChronoCommit(commit))
+
+    def remove_newer_than(self, commit_date: int) -> None:
+        while self._heap and self._heap[0].is_newer_than(commit_date):
+            commit = heappop(self._heap).commit
+            try:
+                self.on_remove(commit)
+            except KeyError:
+                pass
+
+    def pop(self) -> tuple[Commit, V]:
+        while True:
+            try:
+                commit = heappop(self._heap).commit
+            except IndexError:
+                raise KeyError() from None
+            try:
+                value = self.on_remove(commit)
+                return (commit, value)
+            except KeyError:
+                pass
+
+
 class CommitSet(MutableSet[Commit]):
     """Stores a set of commits, with O(1) access to the newest commit."""
 
     def __init__(self, commit: Commit):
         self._commits = {commit}
-        self._in_commits = [ChronoCommit(commit)]
+        self._heap = CommitHeap(
+            still_contains=lambda x: x in self._commits, on_remove=self._commits.remove
+        )
+        self._heap.add(commit)
         self.last_added: Commit | None = commit
 
     def __contains__(self, commit: object, /) -> bool:
@@ -54,28 +91,17 @@ class CommitSet(MutableSet[Commit]):
         self.last_added = commit
         if commit:
             self._commits.add(commit)
-            heappush(self._in_commits, ChronoCommit(commit))
+            self._heap.add(commit)
 
     def discard(self, value: Commit) -> None:
         self._commits.discard(value)
 
     def pop(self) -> Commit:
-        while True:
-            try:
-                commit = heappop(self._in_commits)
-            except IndexError:
-                raise KeyError() from None
-            try:
-                self._commits.remove(commit.commit)
-                return commit.commit
-            except KeyError:
-                pass
+        return self._heap.pop()[0]
 
     def remove_newer_than(self, commit_date: int) -> None:
         """Prune all commits newer than commit_date."""
-        while self._in_commits and self._in_commits[0].is_newer_than(commit_date):
-            self._commits.remove(self._in_commits[0].commit)
-            heappop(self._in_commits)
+        self._heap.remove_newer_than(commit_date)
 
 
 def all_parents(commit: Commit, *, window_size_secs: int = 60) -> Iterator[Commit]:
