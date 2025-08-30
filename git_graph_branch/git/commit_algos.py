@@ -69,13 +69,14 @@ class CommitHeap[V]:
 class CommitSet(MutableSet[Commit]):
     """Stores a set of commits, with O(1) access to the newest commit."""
 
-    def __init__(self, commit: Commit):
-        self._commits = {commit}
+    def __init__(self, *commits: Commit):
+        self._commits = set(commits)
         self._heap = CommitHeap(
             still_contains=lambda x: x in self._commits, on_remove=self._commits.remove
         )
-        self._heap.add(commit)
-        self.last_added: Commit | None = commit
+        for commit in commits:
+            self._heap.add(commit)
+        self.last_added = commits[-1] if commits else None
 
     def __contains__(self, commit: object, /) -> bool:
         return commit in self._commits
