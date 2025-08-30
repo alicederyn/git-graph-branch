@@ -1,6 +1,8 @@
 from typing import Iterable
 from unittest.mock import Mock, PropertyMock
 
+import pytest
+
 from git_graph_branch.git.commit import Commit, MissingCommit
 from git_graph_branch.git.commit_algos import CommitSet
 
@@ -90,3 +92,38 @@ def test_shallow_clone() -> None:
         w.add(commit)
     w.remove_newer_than(b.commit_date + 60)
     assert in_window(w, commits) == {a, b, c}
+
+
+def test_pop() -> None:
+    c1 = mock_commit(commit_date=100)
+    c2 = mock_commit(commit_date=101)
+    c3 = mock_commit(commit_date=102)
+    c4 = mock_commit(commit_date=103)
+
+    w = CommitSet(c3)
+    w.add(c1)
+    w.add(c2)
+    w.add(c4)
+    w.add(c3)
+
+    assert w.pop() == c4
+    assert w.pop() == c3
+    assert w.pop() == c2
+    assert w.pop() == c1
+
+    with pytest.raises(KeyError):
+        w.pop()
+
+    assert c4 not in w
+
+
+def test_remove() -> None:
+    c1 = mock_commit(commit_date=100)
+    c2 = mock_commit(commit_date=101)
+
+    w = CommitSet(c1)
+    w.add(c2)
+    w.remove(c2)
+
+    assert c2 not in w
+    assert w.pop() == c1
