@@ -1,7 +1,7 @@
 from collections.abc import MutableMapping, MutableSet
 from functools import total_ordering
 from heapq import heappop, heappush
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from .commit import Commit, MissingCommit
 
@@ -273,3 +273,29 @@ def range(
             commit = commit.first_parent
         except MissingCommit:
             return
+
+
+def merge_reverse_chronological[T](
+    iterables: Iterable[Iterable[tuple[Commit, T]]],
+) -> Iterator[tuple[Commit, T]]:
+    """Merges multiple iterables, preserving reverse chronological commit ordering."""
+    todo: CommitListMultimap[T, Iterator[tuple[Commit, T]]] = CommitListMultimap()
+
+    for iterable in iterables:
+        it = iter(iterable)
+        try:
+            commit, value = next(it)
+        except StopIteration:
+            pass
+        else:
+            todo.append(commit, value, it)
+
+    while todo:
+        commit, value, it = todo.popitem()
+        yield (commit, value)
+        try:
+            next_commit, next_value = next(it)
+        except StopIteration:
+            pass
+        else:
+            todo.append(next_commit, next_value, it)
