@@ -169,6 +169,52 @@ class CommitMap[T](MutableMapping[Commit, T]):
         self._heap.remove_newer_than(commit_date)
 
 
+class CommitListMultimap[*Ts]:
+    """A convenience wrapper around a CommitMap[list[tuple[*Ts]]]."""
+
+    def __init__(self) -> None:
+        self._map: CommitMap[list[tuple[*Ts]]] = CommitMap()
+
+    def __bool__(self) -> bool:
+        return bool(self._map)
+
+    def append(self, key: Commit, *values: *Ts) -> None:
+        self._map.setdefault(key, []).append(values)
+
+    def peek(self) -> Commit:
+        return self._map.peek()
+
+    def popitem(self) -> tuple[Commit, *Ts]:
+        key = self._map.peek()
+        values = self._map[key]
+        if len(values) == 1:
+            self._map.popitem()
+        return (key, *(values.pop()))
+
+
+class CommitSetMultimap[*Ts]:
+    """A convenience wrapper around a CommitMap[set[tuple[*Ts]]]."""
+
+    def __init__(self) -> None:
+        self._map: CommitMap[set[tuple[*Ts]]] = CommitMap()
+
+    def __bool__(self) -> bool:
+        return bool(self._map)
+
+    def add(self, key: Commit, *values: *Ts) -> None:
+        self._map.setdefault(key, set()).add(values)
+
+    def peek(self) -> Commit:
+        return self._map.peek()
+
+    def popitem(self) -> tuple[Commit, *Ts]:
+        key = self._map.peek()
+        values = self._map[key]
+        if len(values) == 1:
+            self._map.popitem()
+        return (key, *(values.pop()))
+
+
 class WindowedReachable:
     def __init__(self, commit: Commit, *, window_size_secs: int = 60) -> None:
         self._reachable = CommitSet(commit)
