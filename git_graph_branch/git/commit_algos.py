@@ -1,4 +1,4 @@
-from collections.abc import MutableSet
+from collections.abc import MutableMapping, MutableSet
 from functools import total_ordering
 from heapq import heappop, heappush
 from typing import Any, Callable, Iterator
@@ -120,6 +120,43 @@ class CommitSet(MutableSet[Commit]):
     def remove_newer_than(self, commit_date: int) -> None:
         """Prune all commits newer than commit_date."""
         self._heap.remove_newer_than(commit_date)
+
+
+class CommitMap[T](MutableMapping[Commit, T]):
+    def __init__(self) -> None:
+        self._map: dict[Commit, T] = {}
+        self._heap = CommitHeap(
+            still_contains=lambda x: x in self._map, on_remove=self._map.pop
+        )
+        self._window_top: int | None = None
+
+    def __getitem__(self, key: Commit, /) -> T:
+        return self._map[key]
+
+    def __setitem__(self, key: Commit, value: T, /) -> None:
+        if self._window_top is None or key.commit_date >= self._window_top:
+            if key not in self._map:
+                self._heap.add(key)
+            self._map[key] = value
+
+    def __delitem__(self, key: Commit, /) -> None:
+        del self._map[key]
+
+    def __iter__(self) -> Iterator[Commit]:
+        return iter(self._map)
+
+    def __len__(self) -> int:
+        return len(self._map)
+
+    def popitem(self) -> tuple[Commit, T]:
+        """Pop the most recent commit.
+
+        If the map is empty, calling popitem() raises a KeyError.
+        """
+        try:
+            return self._heap.pop()
+        except IndexError:
+            raise KeyError() from None
 
 
 class WindowedReachable:
