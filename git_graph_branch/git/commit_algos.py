@@ -53,6 +53,13 @@ class CommitHeap[V]:
             except KeyError:
                 pass
 
+    def peek(self) -> Commit | None:
+        while self._heap and (commit := self._heap[0].commit) is not None:
+            if self.still_contains(commit):
+                return commit
+            heappop(self._heap)
+        return None
+
     def pop(self) -> tuple[Commit, V]:
         while True:
             try:
@@ -96,6 +103,16 @@ class CommitSet(MutableSet[Commit]):
 
     def discard(self, value: Commit) -> None:
         self._commits.discard(value)
+
+    def has_commit_newer_than(self, timestamp: int) -> bool:
+        commit = self._heap.peek()
+        return commit is not None and commit.commit_date > timestamp
+
+    def peek(self) -> Commit:
+        commit = self._heap.peek()
+        if not commit:
+            raise KeyError()
+        return commit
 
     def pop(self) -> Commit:
         return self._heap.pop()[0]
