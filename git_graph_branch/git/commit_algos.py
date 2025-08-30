@@ -31,8 +31,8 @@ class ChronoCommit:
         return -self._key[0] > commit_date
 
 
-class CommitWindow:
-    """Stores a set of commits in a time window."""
+class CommitSet:
+    """Stores a set of commits, with O(1) access to the newest commit."""
 
     def __init__(self, commit: Commit):
         self._commits = {commit}
@@ -49,7 +49,7 @@ class CommitWindow:
             self._commits.add(commit)
             heappush(self._in_commits, ChronoCommit(commit))
 
-    def prune_to(self, commit_date: int) -> None:
+    def remove_newer_than(self, commit_date: int) -> None:
         """Prune all commits newer than commit_date."""
         while self._in_commits and self._in_commits[0].is_newer_than(commit_date):
             self._commits.remove(self._in_commits[0].commit)
@@ -59,11 +59,11 @@ class CommitWindow:
 def all_parents(commit: Commit, *, window_size_secs: int = 60) -> Iterator[Commit]:
     """Yield all parents of a commit in chronological order (newest first)."""
     heap = [ChronoCommit(commit)]
-    seen = CommitWindow(commit)
+    seen = CommitSet(commit)
 
     while heap:
         current = heappop(heap).commit
-        seen.prune_to(current.commit_date + window_size_secs)
+        seen.remove_newer_than(current.commit_date + window_size_secs)
         yield current
 
         for parent in current.available_parents():
@@ -72,7 +72,7 @@ def all_parents(commit: Commit, *, window_size_secs: int = 60) -> Iterator[Commi
                 heappush(heap, ChronoCommit(parent))
 
 
-def extend_window_with_first_parents(window: CommitWindow, commit_date: int) -> None:
+def extend_window_with_first_parents(window: CommitSet, commit_date: int) -> None:
     commit = window.last_added
     while commit and commit.commit_date > commit_date:
         window.add(commit.first_parent)
@@ -84,11 +84,13 @@ def last_merged_commit(
 ) -> Commit | None:
     """Find the most recent commit on downstream that has been merged into upstream."""
 
-    upstream_window = CommitWindow(upstream)
+    upstream_window = CommitSet(upstream)
 
     for downstream_commit in all_parents(downstream, window_size_secs=window_size_secs):
         try:
-            upstream_window.prune_to(downstream_commit.commit_date + window_size_secs)
+            upstream_window.remove_newer_than(
+                downstream_commit.commit_date + window_size_secs
+            )
             extend_window_with_first_parents(
                 upstream_window, downstream_commit.commit_date - window_size_secs
             )
