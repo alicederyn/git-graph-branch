@@ -1,7 +1,7 @@
 # coding=utf-8
 from __future__ import annotations
 
-from collections import deque
+from collections import defaultdict, deque
 from itertools import takewhile
 from typing import (
     Any,
@@ -22,6 +22,46 @@ class HasLessThan(Protocol):
 
 class HasGreaterThan(Protocol):
     def __gt__(self, __other: Any) -> bool: ...
+
+
+class Reachable[T](dict[T, set[T]]):
+    def __getitem__(self, key: T, /) -> set[T]:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            v = self[key] = {key}
+            return v
+
+
+class DAG[T]:
+    """Stores a directed, acyclic graph.
+
+    If adding a directed edge would create a cycle, it is ignored.
+    """
+
+    def __init__(self) -> None:
+        self._edges: dict[T, set[T]] = defaultdict(set)
+        self._downstream: dict[T, set[T]] = Reachable()
+        self._upstream: dict[T, set[T]] = Reachable()
+
+    def add(self, edge: tuple[T, T], /) -> bool:
+        from_, to_ = edge
+        if to_ in self._upstream[from_]:
+            return False
+        if to_ in self._edges[from_]:
+            return True
+        self._edges[from_].add(to_)
+        upstream = self._upstream[from_]
+        downstream = self._downstream[to_]
+        for n in downstream:
+            self._upstream[n].update(upstream)
+        for n in upstream:
+            self._downstream[n].update(downstream)
+        return True
+
+    def __contains__(self, edge: tuple[T, T], /) -> bool:
+        from_, to_ = edge
+        return to_ in self._edges[from_]
 
 
 class NodeArt:
