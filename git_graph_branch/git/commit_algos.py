@@ -148,6 +148,12 @@ class CommitMap[T](MutableMapping[Commit, T]):
     def __len__(self) -> int:
         return len(self._map)
 
+    def peek(self) -> Commit:
+        commit = self._heap.peek()
+        if not commit:
+            raise KeyError()
+        return commit
+
     def popitem(self) -> tuple[Commit, T]:
         """Pop the most recent commit.
 
@@ -157,6 +163,10 @@ class CommitMap[T](MutableMapping[Commit, T]):
             return self._heap.pop()
         except IndexError:
             raise KeyError() from None
+
+    def remove_newer_than(self, commit_date: int) -> None:
+        """Prune all commits newer than commit_date."""
+        self._heap.remove_newer_than(commit_date)
 
 
 class WindowedReachable:

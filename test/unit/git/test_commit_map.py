@@ -70,3 +70,35 @@ def test_delitem() -> None:
     with pytest.raises(KeyError):
         m[c2]
     assert m.popitem() == (c1, "a")
+
+
+def test_peek() -> None:
+    c1 = mock_commit(100)
+    c2 = mock_commit(101)
+
+    m: CommitMap[str] = CommitMap()
+    m[c1] = "a"
+    m[c2] = "b"
+
+    assert m.peek() == c2
+
+    del m[c2]
+
+    assert m.peek() == c1
+
+
+def test_remove_newer_than() -> None:
+    c1 = mock_commit(100)
+    c2 = mock_commit(101)
+    c3 = mock_commit(102)
+
+    m: CommitMap[str] = CommitMap()
+    m[c1] = "a"
+    m[c3] = "c"
+    m[c2] = "b"
+    assert len(m) == 3
+
+    m.remove_newer_than(101)
+
+    assert len(m) == 2
+    assert m.peek() == c2
