@@ -30,6 +30,13 @@ class Commit:
             except MissingCommit:
                 continue
 
+    def available_merge_parents(self) -> "Iterator[Commit]":
+        for hash in self._git_object().parents[1:]:
+            try:
+                yield Commit(hash)
+            except MissingCommit:
+                continue
+
     @property
     def first_parent(self) -> "Commit | None":
         hash = self._git_object().first_parent
