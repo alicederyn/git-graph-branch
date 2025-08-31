@@ -61,19 +61,13 @@ def test_no_common_history() -> None:
 def test_clock_drift() -> None:
     """Upstream window extends across iterations with a small time window."""
     # Graph (commit_dates):
-    # u4(100) -- u3(200) -- u2(300) -- u1(400) -- u0(500)   <-- upstream (first-parent only)
-    #              \
-    #               d1(180) -- d2(220) -- d3(280) -- d4(380) -- d5(480)   <-- downstream
-    u4 = mock_commit(commit_date=100, hash="u4")
-    u3 = mock_commit(commit_date=200, hash="u3", parents=(u4,))
-    u2 = mock_commit(commit_date=300, hash="u2", parents=(u3,))
-    u1 = mock_commit(commit_date=400, hash="u1", parents=(u2,))
-    u0 = mock_commit(commit_date=500, hash="u0", parents=(u1,))
-    d1 = mock_commit(commit_date=180, hash="d1", parents=(u3,))
-    d2 = mock_commit(commit_date=220, hash="d2", parents=(d1,))
-    d3 = mock_commit(commit_date=280, hash="d3", parents=(d2,))
-    d4 = mock_commit(commit_date=380, hash="d4", parents=(d3,))
-    d5 = mock_commit(commit_date=480, hash="d5", parents=(d4,))
+    # u1 (101) -- u2 (100) <-- upstream
+    #   \           \
+    #    d1 (102) -- d2 (103) <-- downstream
+    u1 = mock_commit(commit_date=101, hash="u1")
+    d1 = mock_commit(commit_date=101, hash="d1", parents=(u1,))
+    u2 = mock_commit(commit_date=100, hash="u2", parents=(u1,))
+    d2 = mock_commit(commit_date=103, hash="d2", parents=(d1,u2))
 
     # Ensure u3 is found despite the clock drift
-    assert last_merged_commit(upstream=u0, downstream=d5, window_size_secs=50) == u3
+    assert last_merged_commit(upstream=u2, downstream=d2, window_size_secs=50) == u2

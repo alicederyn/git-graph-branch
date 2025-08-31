@@ -122,47 +122,36 @@ class CommitSet(MutableSet[Commit]):
         self._heap.remove_newer_than(commit_date)
 
 
-def all_parents(commit: Commit, *, window_size_secs: int = 60) -> Iterator[Commit]:
-    """Yield all parents of a commit in chronological order (newest first)."""
-    heap = [ChronoCommit(commit)]
-    seen = CommitSet(commit)
+class WindowedReachable:
+    def __init__(self, commit: Commit, *, window_size_secs: int = 60) -> None:
+        self._reachable = CommitSet(commit)
+        self._todo = CommitSet(commit)
+        self.window_size_secs = window_size_secs
 
-    while heap:
-        current = heappop(heap).commit
-        seen.remove_newer_than(current.commit_date + window_size_secs)
-        yield current
+    def _slide_window_to(self, ts: int) -> None:
+        window_top = ts + self.window_size_secs
+        self._reachable.remove_newer_than(ts + self.window_size_secs)
+        while self._todo and self._todo.peek().commit_date >= ts - self.window_size_secs:
+            commit = self._todo.pop()
+            for parent in commit.available_parents():
+                self._todo.add(parent)
+                if parent.commit_date <= window_top:
+                    self._reachable.add(parent)
 
-        for parent in current.available_parents():
-            if parent not in seen:
-                seen.add(parent)
-                heappush(heap, ChronoCommit(parent))
-
-
-def extend_window_with_first_parents(window: CommitSet, commit_date: int) -> None:
-    commit = window.last_added
-    while commit and commit.commit_date > commit_date:
-        window.add(commit.first_parent)
-        commit = window.last_added
+    def __contains__(self, commit: Commit) -> bool:
+        self._slide_window_to(commit.commit_date)
+        return commit in self._reachable
 
 
 def last_merged_commit(
     upstream: Commit, downstream: Commit, *, window_size_secs: int = 60
 ) -> Commit | None:
-    """Find the most recent commit on downstream that has been merged into upstream."""
-
-    upstream_window = CommitSet(upstream)
-
-    for downstream_commit in all_parents(downstream, window_size_secs=window_size_secs):
+    """Find the most recent commit on upstream that has been merged into downstream."""
+    reachable = WindowedReachable(downstream, window_size_secs=window_size_secs)
+    commit: Commit | None = upstream
+    while commit and commit not in reachable:
         try:
-            upstream_window.remove_newer_than(
-                downstream_commit.commit_date + window_size_secs
-            )
-            extend_window_with_first_parents(
-                upstream_window, downstream_commit.commit_date - window_size_secs
-            )
-            if downstream_commit in upstream_window:
-                return downstream_commit
+            commit = commit.first_parent
         except MissingCommit:
-            break
-
-    return None
+            return None
+    return commit
