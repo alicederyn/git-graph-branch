@@ -20,7 +20,7 @@ def mock_commit(
 def test_same_commit() -> None:
     """Test when upstream and downstream are the same commit."""
     a = mock_commit(commit_date=100, hash="a")
-    assert list(unmerged_commits(upstream=a, downstream=a)) == []
+    assert list(unmerged_commits(a, a)) == []
 
 
 def test_merge_commit() -> None:
@@ -34,7 +34,7 @@ def test_merge_commit() -> None:
     c = mock_commit(commit_date=300, hash="c", parents=(a, b))
 
     # The most recent commit in feature branch that's in the merge commit is 'b'
-    assert list(unmerged_commits(upstream=b, downstream=c)) == []
+    assert list(unmerged_commits(c, b)) == []
 
 
 def test_only_uses_first_parent_of_upstream() -> None:
@@ -47,7 +47,7 @@ def test_only_uses_first_parent_of_upstream() -> None:
     d = mock_commit(commit_date=400, hash="d", parents=(a, c))
 
     # c is reachable from d, but not by first parents only
-    assert list(unmerged_commits(upstream=d, downstream=c)) == [d]
+    assert list(unmerged_commits(c, d)) == [d]
 
 
 def test_no_common_history() -> None:
@@ -55,7 +55,7 @@ def test_no_common_history() -> None:
     a = mock_commit(commit_date=100, hash="a")
     b = mock_commit(commit_date=200, hash="b")
 
-    assert list(unmerged_commits(upstream=a, downstream=b)) == [a]
+    assert list(unmerged_commits(b, a)) == [a]
 
 
 def test_clock_drift() -> None:
@@ -69,4 +69,19 @@ def test_clock_drift() -> None:
     u2 = mock_commit(commit_date=100, hash="u2", parents=(u1,))
     d2 = mock_commit(commit_date=103, hash="d2", parents=(d1, u2))
 
-    assert list(unmerged_commits(upstream=u2, downstream=d2, window_size_secs=50)) == []
+    assert list(unmerged_commits(d2, u2, window_size_secs=50)) == []
+
+
+def test_commits_deduplicated_when_multiple_upstreams() -> None:
+    #          c3  <-- upstream #1
+    #         /
+    # c1 -- c2 -- c4  <-- upstream #2
+    #  \
+    #   c5  <-- downstream
+    c1 = mock_commit(commit_date=100, hash="c1")
+    c2 = mock_commit(commit_date=101, hash="c1", parents=(c1,))
+    c3 = mock_commit(commit_date=102, hash="c1", parents=(c2,))
+    c4 = mock_commit(commit_date=103, hash="c1", parents=(c2,))
+    c5 = mock_commit(commit_date=103, hash="c1", parents=(c1,))
+
+    assert list(unmerged_commits(c5, c3, c4)) == [c4, c3, c2]

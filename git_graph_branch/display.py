@@ -66,7 +66,7 @@ def compute_unmerged(b: Branch) -> int:
     upstream = b.upstream
     if upstream is None:
         return 0
-    return sum(1 for _ in unmerged_commits(upstream.commit, b.commit))
+    return sum(1 for _ in unmerged_commits(b.commit, upstream.commit))
 
 
 def print_branch(art: NodeArt, b: Branch, config: Config) -> None:

@@ -239,17 +239,26 @@ class WindowedReachable:
 
 
 def unmerged_commits(
-    upstream: Commit, downstream: Commit, *, window_size_secs: int = 60
+    downstream: Commit, *upstreams: Commit, window_size_secs: int = 60
 ) -> Iterator[Commit]:
-    """Yield all commits on upstream that have not been merged into downstream."""
+    """Yield all commits on upstreams that are not reachable from downstream."""
     reachable = WindowedReachable(downstream, window_size_secs=window_size_secs)
-    commit: Commit | None = upstream
-    try:
-        while commit and commit not in reachable:
-            yield commit
-            commit = commit.first_parent
-    except MissingCommit:
-        pass
+    todo = CommitSet(*upstreams)
+    seen = CommitSet(*upstreams)
+    while todo:
+        commit = todo.pop()
+        seen.remove_newer_than(commit.commit_date + window_size_secs)
+        if commit in reachable:
+            continue
+        yield commit
+        try:
+            parent = commit.first_parent
+        except MissingCommit:
+            pass
+        else:
+            if parent and parent not in seen:
+                todo.add(parent)
+                seen.add(parent)
 
 
 def range(
