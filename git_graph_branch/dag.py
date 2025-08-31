@@ -40,9 +40,21 @@ class DAG[T]:
     If adding a directed edge would create a cycle, it is ignored.
     """
 
-    def __init__(self, edges: Iterable[tuple[T, T]] = ()) -> None:
+    @overload
+    def __init__(self, nodes: Iterable[T], edges: Iterable[tuple[T, T]], /) -> None: ...
+
+    @overload
+    def __init__(
+        self, *, nodes: Iterable[T] = (), edges: Iterable[tuple[T, T]] = ()
+    ) -> None: ...
+
+    def __init__(
+        self, nodes: Iterable[T] = (), edges: Iterable[tuple[T, T]] = ()
+    ) -> None:
         # Use a dict[T, None] instead of a set[T] to preserve insertion order.
-        self._edges: dict[T, dict[T, None]] = defaultdict(dict)
+        self._edges: dict[T, dict[T, None]] = defaultdict(
+            dict, {node: {} for node in nodes}
+        )
         self._downstream: dict[T, set[T]] = Reachable()
         self._upstream: dict[T, set[T]] = Reachable()
         for edge in edges:
@@ -55,6 +67,7 @@ class DAG[T]:
         if to_ in self._edges[from_]:
             return True
         self._edges[from_][to_] = None
+        self._edges[to_]
         upstream = self._upstream[from_]
         downstream = self._downstream[to_]
         for n in downstream:
@@ -62,6 +75,9 @@ class DAG[T]:
         for n in upstream:
             self._downstream[n].update(downstream)
         return True
+
+    def __iter__(self) -> Iterator[T]:
+        return iter(self._edges)
 
     def __contains__(self, edge: tuple[T, T], /) -> bool:
         from_, to_ = edge

@@ -49,13 +49,13 @@ def test_cycle_ignored() -> None:
 def test_repr() -> None:
     assert repr(DAG()) == "DAG()"
 
-    g = DAG([("a", "b"), ("b", "c"), ("a", "d")])
+    g = DAG(edges=[("a", "b"), ("b", "c"), ("a", "d")])
     assert repr(g) == "DAG([('a','b'), ('a','d'), ('b','c')])"
 
 
 def test_eq() -> None:
-    g1 = DAG([("a", "b"), ("b", "c"), ("a", "d")])
-    g2 = DAG([("b", "c"), ("a", "b"), ("a", "d")])
+    g1 = DAG(edges=[("a", "b"), ("b", "c"), ("a", "d")])
+    g2 = DAG(edges=[("b", "c"), ("a", "b"), ("a", "d")])
     g3: DAG[str] = DAG()
 
     assert g1 == g1
