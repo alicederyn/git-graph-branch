@@ -271,21 +271,13 @@ class NodeArt:
         )
 
 
-def inverted[T](relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
-    inverse: dict[T, set[T]] = {b: set() for b in relationship}
-    for key, values in relationship.items():
-        for value in values:
-            inverse[value].add(key)
-    return inverse
-
-
-def reachable_from[T](node: T, *relationships: Mapping[T, Collection[T]]) -> set[T]:
+def reachable_from[T](node: T, *relationships: Callable[[T], Collection[T]]) -> set[T]:
     all_reachable = {node}
     todo = [node]
     while todo:
         n = todo.pop()
         for relationship in relationships:
-            for reachable_node in relationship[n]:
+            for reachable_node in relationship(n):
                 if reachable_node not in all_reachable:
                     todo.append(reachable_node)
                     all_reachable.add(reachable_node)
@@ -293,9 +285,7 @@ def reachable_from[T](node: T, *relationships: Mapping[T, Collection[T]]) -> set
     return all_reachable
 
 
-def add_node_art[T](
-    nodes: list[T], parents: Mapping[T, Collection[T]], children: Mapping[T, set[T]]
-) -> list[tuple[NodeArt, T]]:
+def add_node_art[T](nodes: list[T], dag: DAG[T]) -> list[tuple[NodeArt, T]]:
     """Add node art to a list of nodes to depict the associated edges.
 
     The node list must be partially ordered to respect the DAG. Specifically,
@@ -309,21 +299,21 @@ def add_node_art[T](
     for b in reversed(nodes):
         reached.add(b)
 
-        finished_parents = [p for p in parents[b] if children[p] <= reached]
+        finished_parents = [p for p in dag.parents(b) if dag.children(p) <= reached]
         at = (
             min(columns[p] for p in finished_parents)
             if finished_parents
             else len(active)
         )
         columns[b] = at
-        down = {columns[p] for p in parents[b]}
-        for p in parents[b]:
-            if all(c in columns for c in children[p]):
+        down = {columns[p] for p in dag.parents(b)}
+        for p in dag.parents(b):
+            if all(c in columns for c in dag.children(p)):
                 active[columns[p]] = None
         through = {
             idx for idx, p in enumerate(active) if p and idx != at and idx not in down
         }
-        if children[b]:
+        if dag.children(b):
             while len(active) <= at:
                 active.append(None)
             active[at] = b
@@ -363,23 +353,20 @@ def priority_key[C: HasLessThan | HasGreaterThan](
 
 @overload
 def partially_ordered[T, C: HasLessThan | HasGreaterThan](
-    parents: Mapping[T, Collection[T]],
-    children: Mapping[T, Collection[T]],
+    dag: DAG[T],
     key: Callable[[T], C],
 ) -> list[T]: ...
 
 
 @overload
 def partially_ordered[C: HasLessThan | HasGreaterThan](
-    parents: Mapping[C, Collection[C]],
-    children: Mapping[C, Collection[C]],
+    dag: DAG[C],
     key: None = ...,
 ) -> list[C]: ...
 
 
 def partially_ordered[T, C: HasLessThan | HasGreaterThan](
-    parents: Mapping[T, Collection[T]],
-    children: Mapping[T, Collection[T]],
+    dag: DAG[T],
     key: Callable[[T], C] | None = None,
 ) -> list[T]:
     """Partially order nodes so children always precede parents.
@@ -387,13 +374,13 @@ def partially_ordered[T, C: HasLessThan | HasGreaterThan](
     Larger nodes (according to < on the nodes, or their key if a key function is
     given) will be preferentially placed first, all other things being equal.
     """
-    keys: dict[T, C] = {node: key(node) if key else cast(C, node) for node in parents}
+    keys: dict[T, C] = {node: key(node) if key else cast(C, node) for node in dag}
     priority_keys: dict[T, tuple[C, list[C]]] = {}
-    remaining = set(parents)
+    remaining = set(dag)
 
     while remaining:
         some_node = next(iter(remaining))
-        todo = deque(reachable_from(some_node, parents, children))
+        todo = deque(reachable_from(some_node, dag.parents, dag.children))
         todo.append(some_node)
         cluster_key = max(keys[node] for node in todo)
         seen = set()  # Loop detection
@@ -402,7 +389,7 @@ def partially_ordered[T, C: HasLessThan | HasGreaterThan](
             node = todo.pop()
             if node not in remaining:
                 continue
-            missing = [p for p in parents[node] if p in remaining]
+            missing = [p for p in dag.parents(node) if p in remaining]
             if missing and node not in seen:
                 seen.add(node)
                 todo.append(node)
@@ -411,7 +398,11 @@ def partially_ordered[T, C: HasLessThan | HasGreaterThan](
                 # If node in seen, we have a loop; fail gracefully
                 pkey: list[C] = priority_key(
                     keys[node],
-                    (priority_keys[p][1] for p in parents[node] if p in priority_keys),
+                    (
+                        priority_keys[p][1]
+                        for p in dag.parents(node)
+                        if p in priority_keys
+                    ),
                 )
                 priority_keys[node] = (cluster_key, pkey)
                 remaining.remove(node)
@@ -447,10 +438,12 @@ def layout[T, C: HasLessThan | HasGreaterThan](
     get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C] | None = None,
 ) -> list[tuple[NodeArt, T]]:
-    parents = sanitized_parents(nodes, get_parents)
-    children = inverted(parents)
-    node_list = partially_ordered(parents, children, key)  # type: ignore
-    return add_node_art(node_list, parents, children)
+    dag: DAG[T] = DAG()
+    for child, parents in sanitized_parents(nodes, get_parents).items():
+        for parent in parents:
+            dag.add((parent, child))
+    node_list = partially_ordered(dag, key)  # type: ignore
+    return add_node_art(node_list, dag)
 
 
 __all__ = ["layout"]
