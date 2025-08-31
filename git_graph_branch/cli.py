@@ -10,7 +10,7 @@ from typing import Sequence, Type, TypeVar
 
 from .dag import layout
 from .display import Config, print_branch
-from .git import branches
+from .git import branches, compute_branch_dag
 from .log_config import configure_logging
 from .nix import once, watcher
 
@@ -109,14 +109,11 @@ async def amain(args: Sequence[str] | None = None) -> None:
         while await needs_refresh():
             if config.watch:
                 clear_screen()
-            art_and_branches = layout(
-                branches(),
-                get_parents=lambda b: optional_to_iterable(b.upstream),
-                key=lambda b: (b.timestamp, b.name),
-            )
+            dag = compute_branch_dag(list(branches()))
+            art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
 
             for art, b in art_and_branches:
-                print_branch(art, b, config)
+                print_branch(art, b, config, dag.parents(b))
             sys.stdout.flush()
 
 

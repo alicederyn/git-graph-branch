@@ -419,29 +419,22 @@ def sanitized_parents[T](
 
 @overload
 def layout[T, C: HasLessThan | HasGreaterThan](
-    nodes: Iterable[T],
-    get_parents: Callable[[T], Iterable[Any]],
+    dag: DAG[T],
     key: Callable[[T], C],
 ) -> list[tuple[NodeArt, T]]: ...
 
 
 @overload
 def layout[C: HasLessThan | HasGreaterThan](
-    nodes: Iterable[C],
-    get_parents: Callable[[C], Iterable[Any]],
+    dag: DAG[C],
     key: None = ...,
 ) -> list[tuple[NodeArt, C]]: ...
 
 
 def layout[T, C: HasLessThan | HasGreaterThan](
-    nodes: Iterable[T],
-    get_parents: Callable[[T], Iterable[Any]],
+    dag: DAG[T],
     key: Callable[[T], C] | None = None,
 ) -> list[tuple[NodeArt, T]]:
-    dag: DAG[T] = DAG()
-    for child, parents in sanitized_parents(nodes, get_parents).items():
-        for parent in parents:
-            dag.add((parent, child))
     node_list = partially_ordered(dag, key)  # type: ignore
     return add_node_art(node_list, dag)
 

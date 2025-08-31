@@ -1,7 +1,7 @@
 # coding=utf-8
 from argparse import Namespace
 from enum import Enum
-from typing import Any
+from typing import Any, Iterable
 
 from ansi import color
 
@@ -62,14 +62,14 @@ def remote_sync_status(b: Branch) -> SyncStatus:
     return SyncStatus.IN_SYNC if has_remote else SyncStatus.NO_REMOTE
 
 
-def compute_unmerged(b: Branch) -> int:
-    upstream = b.upstream
-    if upstream is None:
-        return 0
-    return sum(1 for _ in unmerged_commits(b.commit, upstream.commit))
+def compute_unmerged(b: Branch, parents: Iterable[Branch]) -> int:
+    parent_commits = [p.commit for p in parents]
+    return sum(1 for _ in unmerged_commits(b.commit, *parent_commits))
 
 
-def print_branch(art: NodeArt, b: Branch, config: Config) -> None:
+def print_branch(
+    art: NodeArt, b: Branch, config: Config, parents: Iterable[Branch]
+) -> None:
     print(f"{art}  ", end="")
     reset = False
     if config.color and b.is_head:
@@ -81,7 +81,7 @@ def print_branch(art: NodeArt, b: Branch, config: Config) -> None:
     if config.remote_icons:
         print(SYNC_STATUS_ICON[remote_sync_status(b)], end="")
 
-    unmerged = compute_unmerged(b)
+    unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
         if config.color:
             print(color.fg.boldred, end="")
