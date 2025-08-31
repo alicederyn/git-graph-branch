@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from io import StringIO
 from itertools import takewhile
 from typing import (
     Any,
@@ -39,10 +40,13 @@ class DAG[T]:
     If adding a directed edge would create a cycle, it is ignored.
     """
 
-    def __init__(self) -> None:
-        self._edges: dict[T, set[T]] = defaultdict(set)
+    def __init__(self, edges: Iterable[tuple[T, T]] = ()) -> None:
+        # Use a dict[T, None] instead of a set[T] to preserve insertion order.
+        self._edges: dict[T, dict[T, None]] = defaultdict(dict)
         self._downstream: dict[T, set[T]] = Reachable()
         self._upstream: dict[T, set[T]] = Reachable()
+        for edge in edges:
+            self.add(edge)
 
     def add(self, edge: tuple[T, T], /) -> bool:
         from_, to_ = edge
@@ -50,7 +54,7 @@ class DAG[T]:
             return False
         if to_ in self._edges[from_]:
             return True
-        self._edges[from_].add(to_)
+        self._edges[from_][to_] = None
         upstream = self._upstream[from_]
         downstream = self._downstream[to_]
         for n in downstream:
@@ -62,6 +66,30 @@ class DAG[T]:
     def __contains__(self, edge: tuple[T, T], /) -> bool:
         from_, to_ = edge
         return to_ in self._edges[from_]
+
+    def __eq__(self, other: object, /) -> bool:
+        return isinstance(other, DAG) and other._edges == self._edges
+
+    def __repr__(self) -> str:
+        buffer = StringIO()
+        buffer.write("DAG(")
+        firstitem = True
+        for from_, tos in self._edges.items():
+            for to_ in tos:
+                if firstitem:
+                    buffer.write("[")
+                else:
+                    buffer.write(", ")
+                firstitem = False
+                buffer.write("(")
+                buffer.write(repr(from_))
+                buffer.write(",")
+                buffer.write(repr(to_))
+                buffer.write(")")
+        if not firstitem:
+            buffer.write("]")
+        buffer.write(")")
+        return buffer.getvalue()
 
 
 class NodeArt:

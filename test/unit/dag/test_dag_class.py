@@ -44,3 +44,20 @@ def test_cycle_ignored() -> None:
 
     assert not g.add(("d", "a"))
     assert ("d", "a") not in g
+
+
+def test_repr() -> None:
+    assert repr(DAG()) == "DAG()"
+
+    g = DAG([("a", "b"), ("b", "c"), ("a", "d")])
+    assert repr(g) == "DAG([('a','b'), ('a','d'), ('b','c')])"
+
+
+def test_eq() -> None:
+    g1 = DAG([("a", "b"), ("b", "c"), ("a", "d")])
+    g2 = DAG([("b", "c"), ("a", "b"), ("a", "d")])
+    g3: DAG[str] = DAG()
+
+    assert g1 == g1
+    assert g1 == g2
+    assert g1 != g3
