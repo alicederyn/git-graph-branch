@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Set
 from io import StringIO
 from itertools import takewhile
 from typing import (
@@ -55,6 +56,7 @@ class DAG[T]:
         self._edges: dict[T, dict[T, None]] = defaultdict(
             dict, {node: {} for node in nodes}
         )
+        self._reverse_edges: dict[T, dict[T, None]] = defaultdict(dict)
         self._downstream: dict[T, set[T]] = Reachable()
         self._upstream: dict[T, set[T]] = Reachable()
         for edge in edges:
@@ -68,6 +70,7 @@ class DAG[T]:
             return True
         self._edges[from_][to_] = None
         self._edges[to_]
+        self._reverse_edges[to_][from_] = None
         upstream = self._upstream[from_]
         downstream = self._downstream[to_]
         for n in downstream:
@@ -78,6 +81,12 @@ class DAG[T]:
 
     def __iter__(self) -> Iterator[T]:
         return iter(self._edges)
+
+    def parents(self, node: T) -> Set[T]:
+        return self._reverse_edges[node].keys()
+
+    def children(self, node: T) -> Set[T]:
+        return self._edges[node].keys()
 
     def __contains__(self, edge: tuple[T, T], /) -> bool:
         from_, to_ = edge
