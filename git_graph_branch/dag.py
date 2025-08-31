@@ -11,7 +11,6 @@ from typing import (
     Iterator,
     Mapping,
     Protocol,
-    TypeVar,
     cast,
     overload,
 )
@@ -23,10 +22,6 @@ class HasLessThan(Protocol):
 
 class HasGreaterThan(Protocol):
     def __gt__(self, __other: Any) -> bool: ...
-
-
-T = TypeVar("T")
-C = TypeVar("C", bound=HasLessThan | HasGreaterThan)
 
 
 class NodeArt:
@@ -183,7 +178,7 @@ class NodeArt:
         )
 
 
-def inverted(relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
+def inverted[T](relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
     inverse: dict[T, set[T]] = {b: set() for b in relationship}
     for key, values in relationship.items():
         for value in values:
@@ -191,7 +186,7 @@ def inverted(relationship: Mapping[T, set[T]]) -> Mapping[T, set[T]]:
     return inverse
 
 
-def reachable_from(node: T, *relationships: Mapping[T, Collection[T]]) -> set[T]:
+def reachable_from[T](node: T, *relationships: Mapping[T, Collection[T]]) -> set[T]:
     all_reachable = {node}
     todo = [node]
     while todo:
@@ -205,7 +200,7 @@ def reachable_from(node: T, *relationships: Mapping[T, Collection[T]]) -> set[T]
     return all_reachable
 
 
-def add_node_art(
+def add_node_art[T](
     nodes: list[T], parents: Mapping[T, Collection[T]], children: Mapping[T, set[T]]
 ) -> list[tuple[NodeArt, T]]:
     """Add node art to a list of nodes to depict the associated edges.
@@ -247,7 +242,7 @@ def add_node_art(
     return grid
 
 
-def lt(value: C) -> Callable[[C], bool]:
+def lt[C: HasLessThan | HasGreaterThan](value: C) -> Callable[[C], bool]:
     try:
         return getattr(value, "__lt__")  # type: ignore
     except AttributeError:
@@ -259,7 +254,9 @@ def lt(value: C) -> Callable[[C], bool]:
         return lt
 
 
-def priority_key(node_key: C, blocked_keys: Iterator[list[C]]) -> list[C]:
+def priority_key[C: HasLessThan | HasGreaterThan](
+    node_key: C, blocked_keys: Iterator[list[C]]
+) -> list[C]:
     """A "priority" key that inherits the priority of blocked nodes.
 
     For instance, in this case, a low-priority node is blocking two higher-
@@ -272,7 +269,7 @@ def priority_key(node_key: C, blocked_keys: Iterator[list[C]]) -> list[C]:
 
 
 @overload
-def partially_ordered(
+def partially_ordered[T, C: HasLessThan | HasGreaterThan](
     parents: Mapping[T, Collection[T]],
     children: Mapping[T, Collection[T]],
     key: Callable[[T], C],
@@ -280,14 +277,14 @@ def partially_ordered(
 
 
 @overload
-def partially_ordered(
+def partially_ordered[C: HasLessThan | HasGreaterThan](
     parents: Mapping[C, Collection[C]],
     children: Mapping[C, Collection[C]],
     key: None = ...,
 ) -> list[C]: ...
 
 
-def partially_ordered(
+def partially_ordered[T, C: HasLessThan | HasGreaterThan](
     parents: Mapping[T, Collection[T]],
     children: Mapping[T, Collection[T]],
     key: Callable[[T], C] | None = None,
@@ -329,7 +326,7 @@ def partially_ordered(
     return sorted(priority_keys, key=priority_keys.__getitem__, reverse=True)
 
 
-def sanitized_parents(
+def sanitized_parents[T](
     nodes: Iterable[T], get_parents: Callable[[T], Iterable[Any]]
 ) -> Mapping[T, set[T]]:
     node_set = set(nodes)
@@ -337,7 +334,7 @@ def sanitized_parents(
 
 
 @overload
-def layout(
+def layout[T, C: HasLessThan | HasGreaterThan](
     nodes: Iterable[T],
     get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C],
@@ -345,14 +342,14 @@ def layout(
 
 
 @overload
-def layout(
+def layout[C: HasLessThan | HasGreaterThan](
     nodes: Iterable[C],
     get_parents: Callable[[C], Iterable[Any]],
     key: None = ...,
 ) -> list[tuple[NodeArt, C]]: ...
 
 
-def layout(
+def layout[T, C: HasLessThan | HasGreaterThan](
     nodes: Iterable[T],
     get_parents: Callable[[T], Iterable[Any]],
     key: Callable[[T], C] | None = None,
