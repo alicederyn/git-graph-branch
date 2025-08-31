@@ -131,7 +131,9 @@ class WindowedReachable:
     def _slide_window_to(self, ts: int) -> None:
         window_top = ts + self.window_size_secs
         self._reachable.remove_newer_than(ts + self.window_size_secs)
-        while self._todo and self._todo.peek().commit_date >= ts - self.window_size_secs:
+        while (
+            self._todo and self._todo.peek().commit_date >= ts - self.window_size_secs
+        ):
             commit = self._todo.pop()
             for parent in commit.available_parents():
                 self._todo.add(parent)
@@ -143,15 +145,15 @@ class WindowedReachable:
         return commit in self._reachable
 
 
-def last_merged_commit(
+def unmerged_commits(
     upstream: Commit, downstream: Commit, *, window_size_secs: int = 60
-) -> Commit | None:
-    """Find the most recent commit on upstream that has been merged into downstream."""
+) -> Iterator[Commit]:
+    """Yield all commits on upstream that have not been merged into downstream."""
     reachable = WindowedReachable(downstream, window_size_secs=window_size_secs)
     commit: Commit | None = upstream
-    while commit and commit not in reachable:
-        try:
+    try:
+        while commit and commit not in reachable:
+            yield commit
             commit = commit.first_parent
-        except MissingCommit:
-            return None
-    return commit
+    except MissingCommit:
+        pass

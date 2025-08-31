@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 
 from git_graph_branch.git.commit import Commit
-from git_graph_branch.git.commit_algos import last_merged_commit
+from git_graph_branch.git.commit_algos import unmerged_commits
 
 
 def mock_commit(
@@ -20,7 +20,7 @@ def mock_commit(
 def test_same_commit() -> None:
     """Test when upstream and downstream are the same commit."""
     a = mock_commit(commit_date=100, hash="a")
-    assert last_merged_commit(upstream=a, downstream=a) == a
+    assert list(unmerged_commits(upstream=a, downstream=a)) == []
 
 
 def test_merge_commit() -> None:
@@ -34,7 +34,7 @@ def test_merge_commit() -> None:
     c = mock_commit(commit_date=300, hash="c", parents=(a, b))
 
     # The most recent commit in feature branch that's in the merge commit is 'b'
-    assert last_merged_commit(upstream=b, downstream=c) == b
+    assert list(unmerged_commits(upstream=b, downstream=c)) == []
 
 
 def test_only_uses_first_parent_of_upstream() -> None:
@@ -47,7 +47,7 @@ def test_only_uses_first_parent_of_upstream() -> None:
     d = mock_commit(commit_date=400, hash="d", parents=(a, c))
 
     # c is reachable from d, but not by first parents only
-    assert last_merged_commit(upstream=d, downstream=c) == a
+    assert list(unmerged_commits(upstream=d, downstream=c)) == [d]
 
 
 def test_no_common_history() -> None:
@@ -55,7 +55,7 @@ def test_no_common_history() -> None:
     a = mock_commit(commit_date=100, hash="a")
     b = mock_commit(commit_date=200, hash="b")
 
-    assert last_merged_commit(upstream=a, downstream=b) is None
+    assert list(unmerged_commits(upstream=a, downstream=b)) == [a]
 
 
 def test_clock_drift() -> None:
@@ -67,7 +67,6 @@ def test_clock_drift() -> None:
     u1 = mock_commit(commit_date=101, hash="u1")
     d1 = mock_commit(commit_date=101, hash="d1", parents=(u1,))
     u2 = mock_commit(commit_date=100, hash="u2", parents=(u1,))
-    d2 = mock_commit(commit_date=103, hash="d2", parents=(d1,u2))
+    d2 = mock_commit(commit_date=103, hash="d2", parents=(d1, u2))
 
-    # Ensure u3 is found despite the clock drift
-    assert last_merged_commit(upstream=u2, downstream=d2, window_size_secs=50) == u2
+    assert list(unmerged_commits(upstream=u2, downstream=d2, window_size_secs=50)) == []
