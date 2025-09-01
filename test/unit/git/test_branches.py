@@ -37,3 +37,21 @@ def test_slash_in_name(repo: Path) -> None:
     check_call(["git", "checkout", "main", "-b", "bug/101"])
     bs = set(branches())
     assert bs == {Branch("main"), Branch("bug/101")}
+
+
+def test_packed_branches(repo: Path) -> None:
+    git_test_commit()
+    check_call(["git", "checkout", "-b", "a"])
+    git_test_commit()
+    git_test_commit()
+    git_test_commit()
+    check_call(["git", "gc"])
+    check_call(["git", "checkout", "-b", "b"])
+    git_test_commit()
+    git_test_commit()
+    git_test_commit()
+    check_call(["git", "repack"])
+
+    bs = set(branches())
+
+    assert bs == {Branch("main"), Branch("a"), Branch("b")}

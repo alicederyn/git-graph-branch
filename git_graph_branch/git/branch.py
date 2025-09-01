@@ -150,3 +150,8 @@ def branches() -> Iterator[Branch]:
     for p in Path.rglob(heads_dir, "*"):
         if p.is_file():
             yield Branch(p)
+    for p, commit in packed_refs().items():
+        if p.is_relative_to(Path("heads")):
+            branch = Branch(heads_dir.parent / p)
+            branch.commit = commit
+            yield branch
