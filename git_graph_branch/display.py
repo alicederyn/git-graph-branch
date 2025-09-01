@@ -67,14 +67,28 @@ def compute_unmerged(b: Branch, parents: Iterable[Branch]) -> int:
     return sum(1 for _ in unmerged_commits(b.commit, *parent_commits))
 
 
+def compute_branch_color(b: Branch) -> object | None:
+    if b.is_head:
+        return color.fg.boldmagenta
+    if isinstance(b.upstream, Branch) and not any(
+        unmerged_commits(b.upstream.commit, b.commit)
+    ):
+        # If all commits are merged into the upstream branch, and the upstream is not a remote branch,
+        # display the branch in grey to show it is safe to delete.
+        return color.fg.grey
+    return None
+
+
 def print_branch(
     art: NodeArt, b: Branch, config: Config, parents: Iterable[Branch]
 ) -> None:
     print(f"{art}  ", end="")
     reset = False
-    if config.color and b.is_head:
-        print(color.fg.magenta, end="")
-        reset = True
+    if config.color:
+        branch_color = compute_branch_color(b)
+        if branch_color is not None:
+            print(branch_color, end="")
+            reset = True
     print(b, end="")
     if reset:
         print(color.fx.reset, end="")

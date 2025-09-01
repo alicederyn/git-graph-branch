@@ -21,6 +21,7 @@ def repo_setup() -> None:
 
     old_main = git_test_commit(date=start_datetime)
     main_commit = git_test_commit(date=start_datetime)
+    check_call(["git", "checkout", "main", "-b", "merged.feature"])
     check_call(["git", "checkout", "main", "-b", "feature1"])
     feature1 = git_test_commit(date=start_datetime + timedelta(minutes=2))
     check_call(["git", "checkout", "feature1", "-b", "feature2"])
@@ -47,6 +48,7 @@ async def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> No
         ┼ │  feature3
         │ ┼  feature2
         ├▶┘  feature1
+        ├▶╴  merged.feature
         ┴  main
     """
 
@@ -63,10 +65,11 @@ async def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -
     config_setup()
     repo_setup()
     expected = """\
-        ┬◀┐  \x1b[35mfeature4\x1b[0m\x1b[1;31m [1 unmerged]\x1b[0m
+        ┬◀┐  \x1b[1;35mfeature4\x1b[0m\x1b[1;31m [1 unmerged]\x1b[0m
         ┼ │  feature3
         │ ┼  feature2 🔶
         ├▶┘  feature1 🔷
+        ├▶╴  \x1b[37mmerged.feature\x1b[0m
         ┴  main 🔷
     """
 
