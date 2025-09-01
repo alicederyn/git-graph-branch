@@ -46,7 +46,7 @@ def test_hash_in_upstream(repo: Path) -> None:
     assert b.upstream == Branch("a#b")
 
 
-def test_deleted_upstream(repo: Path) -> None:
+def test_deleted_remote_upstream(repo: Path) -> None:
     check_call(["git", "checkout", "-t", "-b", "a"])
     git_test_commit()
     check_call(
@@ -59,5 +59,16 @@ def test_deleted_upstream(repo: Path) -> None:
 
     # Replicate a state we can get into with a `git fetch origin` call
     Path(".git", "refs", "remotes", "origin", "a").unlink()
+
+    assert b.upstream is None
+
+
+def test_renamed_local_upstream(repo: Path) -> None:
+    check_call(["git", "checkout", "-t", "-b", "a"])
+    git_test_commit()
+    check_call(["git", "checkout", "-t", "-b", "b"])
+    check_call(["git", "branch", "-d", "a"])
+
+    b = Branch("b")
 
     assert b.upstream is None

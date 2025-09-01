@@ -136,13 +136,12 @@ class Branch(Ref):
                 f'Unexpected config: [branch "{self.name}"].merge does not start `refs/heads/`'
             )
         upstream_name = merge.removeprefix("refs/heads/")
-        if remote == ".":
-            return Branch(upstream_name)
-        else:
-            b = RemoteBranch(remote, upstream_name)
-            # Sometimes remote branches can be deleted without properly updating
-            # the upstream link.
-            return b if b.exists() else None
+        b = (
+            Branch(upstream_name)
+            if remote == "."
+            else RemoteBranch(remote, upstream_name)
+        )
+        return b if b.exists() else None
 
 
 def branches() -> Iterator[Branch]:
