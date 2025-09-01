@@ -271,7 +271,7 @@ class Pack:
 class PackDir:
     def __init__(self, pack_dir: Path):
         assert pack_dir.is_dir()
-        packs: list[tuple[float, Pack]] = []
+        packs: list[tuple[float, str, Pack]] = []
         for data_file in pack_dir.glob("*.pack"):
             data = PackData(data_file)
             index_file = data_file.with_suffix(".idx")
@@ -279,9 +279,10 @@ class PackDir:
                 raise Exception(f"Missing index for pack file: {data_file}")
             index = PackIndex(index_file)
             mtime = data_file.stat().st_mtime
-            packs.append((mtime, Pack(index, data)))
+            packs.append((mtime, data_file.name, Pack(index, data)))
+        # Sort packs by mtime, with filename as a tie breaker to avoid bugs
         packs.sort(reverse=True)
-        self._packs = tuple(p[1] for p in packs)
+        self._packs = tuple(p[2] for p in packs)
 
     def __getitem__(self, hash: str) -> tuple[ObjectKind, bytes]:
         if not (isinstance(hash, str)):
