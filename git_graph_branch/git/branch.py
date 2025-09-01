@@ -139,7 +139,10 @@ class Branch(Ref):
         if remote == ".":
             return Branch(upstream_name)
         else:
-            return RemoteBranch(remote, upstream_name)
+            b = RemoteBranch(remote, upstream_name)
+            # Sometimes remote branches can be deleted without properly updating
+            # the upstream link.
+            return b if b.exists() else None
 
 
 def branches() -> Iterator[Branch]:
