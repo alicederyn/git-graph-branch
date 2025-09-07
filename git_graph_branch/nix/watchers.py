@@ -3,6 +3,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import timedelta
 from itertools import chain, repeat
 
+from .console import flush_io_on_shutdown
 from .contextvars import live_nixer
 from .loop import NixLoop
 from .polling import PollingNixer
@@ -14,7 +15,7 @@ async def watcher(
 ) -> AsyncGenerator[Callable[[], Coroutine[None, None, bool]], None]:
     """Retrigger logic when filesystem changes are detected."""
     nixer = PollingNixer(poll_every)
-    with live_nixer(nixer):
+    with flush_io_on_shutdown(), live_nixer(nixer):
         async with AsyncExitStack() as stack:
             loop = NixLoop(stack, nixer.poll_loop)
             yield loop.needs_refresh

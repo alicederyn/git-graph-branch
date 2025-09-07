@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack
 from typing import Any, Literal
 
 from .cohort import Cohort
+from .console import flush_and_hold_io
 from .contextvars import live_cohort_context
 
 
@@ -37,6 +38,8 @@ class NixLoop:
         if self._first_iteration:
             self._first_iteration = False
             return True
+
+        flush_and_hold_io()
 
         await await_first_and_cancel(self._active_poll(), self._nixed.wait())
         self._nixed.clear()

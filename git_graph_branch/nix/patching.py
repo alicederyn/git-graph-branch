@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import functools
+import sys
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from . import console
 from .cohort import Glob
 from .contextvars import active_cohort, active_nixer
 
@@ -106,6 +108,13 @@ def install_lru_cache_hook() -> None:
     setattr(functools, "lru_cache", lru_cache)
 
 
+def install_console_hooks() -> None:
+    out = console.NixableIO(sys.stdout)
+    err = console.NixableIO(sys.stderr, hold_io=True)
+    sys.stdout = console._nixable_stdout = out
+    sys.stderr = console._nixable_stderr = err
+
+
 def install() -> None:
     """Monkeypatch common libraries to track filesystem access and data caching.
 
@@ -115,3 +124,4 @@ def install() -> None:
     install_path_hooks()
     install_glob_hook()
     install_lru_cache_hook()
+    install_console_hooks()
