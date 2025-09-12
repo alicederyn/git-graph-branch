@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from git_graph_branch.nix.cohort import Cohort, Glob
-from git_graph_branch.nix.polling import should_nix
+from git_graph_branch.nix.tracking import should_nix
 
 CONFIG = Path("./.gitconfig")
 PACK_DIR = Path("./.git/objects/pack")

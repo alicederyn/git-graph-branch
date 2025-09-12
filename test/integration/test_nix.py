@@ -116,7 +116,7 @@ def nix_path() -> Iterator[Any]:
     with (
         patch.object(nix.patching, "Path", FakePath),
         patch.object(nix.patching, "PATH_STAT", FakePath.stat),
-        patch.object(nix.polling, "PATH_STAT", FakePath.stat),
+        patch.object(nix.tracking, "PATH_STAT", FakePath.stat),
     ):
         yield FakePath
 
@@ -127,6 +127,7 @@ async def stack() -> AsyncGenerator[AsyncExitStack, None]:
         yield stack
 
 
+@patch.object(nix.loop, "efficient_await_and_nix_impl", lambda: None)
 async def test_polling_invalidation_loop(nix_path: Any, stack: AsyncExitStack) -> None:
     queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
 

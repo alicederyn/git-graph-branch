@@ -1,5 +1,5 @@
 def main() -> None:
-    from .nix import install
+    from .nix import install, loop_factory
 
     install()
 
@@ -7,4 +7,4 @@ def main() -> None:
 
     from .cli import amain
 
-    asyncio.run(amain())
+    asyncio.run(amain(), loop_factory=loop_factory())

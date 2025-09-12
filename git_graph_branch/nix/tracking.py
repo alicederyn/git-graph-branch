@@ -49,6 +49,12 @@ def should_nix(cohort: Cohort, timestamp: float) -> bool:
     return bool(unseen)
 
 
+def nix_cohort_if_has_changes(cohort: Cohort) -> None:
+    timestamp = cohort_timestamps[cohort]
+    if should_nix(cohort, timestamp):
+        cohort.nix()
+
+
 def nix_cohorts_with_changes() -> None:
     to_nix = [
         cohort
