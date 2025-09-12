@@ -7,21 +7,18 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from . import console
-from .cohort import Glob
-from .contextvars import active_cohort, active_nixer
+from .cohort import Glob, active_cohort
 
 PATH_STAT = Path.stat
 
 
 def record_path_access(path: Path) -> None:
     cohort = active_cohort.get()
-    nixer = active_nixer.get()
     if cohort is not None:
-        assert nixer
         cohort.paths.add(path)
         try:
             PATH_STAT(path)
-            nixer.path_seen(cohort, path)
+            cohort.seen.add(path)
         except FileNotFoundError:
             pass
 
@@ -63,15 +60,13 @@ def install_glob_hook() -> None:
         if recurse_symlinks:
             raise RuntimeError("nix does not support recurse_symlinks")
         cohort = active_cohort.get()
-        nixer = active_nixer.get()
         results = original_glob(self, pattern, case_sensitive=case_sensitive)
         if cohort is None:
             yield from results
         else:
-            assert nixer
             cohort.globs.add(Glob(self, str(pattern), case_sensitive=case_sensitive))
             for path in results:
-                nixer.path_seen(cohort, path)
+                cohort.seen.add(path)
                 yield path
 
     setattr(Path, "glob", glob)
@@ -94,7 +89,7 @@ def install_lru_cache_hook() -> None:
             def cache_wrapper(*args: Any, **kwargs: Any) -> Any:
                 cohort = active_cohort.get()
                 if cohort is not None:
-                    cohort.invalidate_caches.append(original_cache_wrapper.cache_clear)
+                    cohort.on_nix.append(original_cache_wrapper.cache_clear)
                 return original_cache_wrapper(*args, **kwargs)
 
             result: Any = cache_wrapper  # Disable type validation

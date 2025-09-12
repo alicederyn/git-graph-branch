@@ -1,48 +1,64 @@
 import asyncio
-from collections.abc import Callable, Coroutine
-from contextlib import AsyncExitStack
-from typing import Any, Literal
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import timedelta
+from itertools import chain, repeat
+from typing import Literal
 
-from .cohort import Cohort
-from .console import flush_and_hold_io
-from .contextvars import live_cohort_context
-
-
-async def await_first_and_cancel(*coros: Coroutine[None, Any, Any]) -> None:
-    async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(c) for c in coros]
-        _complete, pending = await asyncio.wait(
-            tasks, return_when=asyncio.FIRST_COMPLETED
-        )
-        for t in pending:
-            t.cancel()
+from .cohort import Cohort, live_cohort_context
+from .console import flush_and_hold_io, flush_io_on_shutdown
+from .polling import nix_cohorts_with_changes
 
 
 class NixLoop:
     def __init__(
         self,
         stack: AsyncExitStack,
-        active_poll: Callable[[], Coroutine[None, Any, Any]],
+        poll_every: timedelta,
     ) -> None:
         self._stack = stack
-        self._active_poll = active_poll
+        self._poll_every = poll_every
         self._nixed = asyncio.Event()
-        self._reset_cohort()
-        self._first_iteration = True
+        self._cohort: Cohort | None = None
 
     def _reset_cohort(self) -> None:
-        self._cohort = Cohort(nix=self._nixed.set)
+        self._cohort = Cohort()
+        self._cohort.on_nix.append(self._nixed.set)
+        self._stack.callback(self._nixed.clear)
+        self._stack.callback(self._cohort.nix)
         self._stack.enter_context(live_cohort_context(self._cohort))
 
+    async def poll_loop(self) -> None:
+        while not self._nixed.is_set():
+            await asyncio.sleep(self._poll_every.total_seconds())
+            nix_cohorts_with_changes()
+
     async def needs_refresh(self) -> Literal[True]:
-        if self._first_iteration:
-            self._first_iteration = False
-            return True
-
-        flush_and_hold_io()
-
-        await await_first_and_cancel(self._active_poll(), self._nixed.wait())
-        self._nixed.clear()
-        await self._stack.aclose()
+        if self._cohort:
+            flush_and_hold_io()
+            await self.poll_loop()
+            await self._stack.aclose()
         self._reset_cohort()
         return True
+
+
+@asynccontextmanager
+async def watcher(
+    poll_every: timedelta,
+) -> AsyncGenerator[Callable[[], Coroutine[None, None, bool]], None]:
+    """Retrigger logic when filesystem changes are detected."""
+    with flush_io_on_shutdown():
+        async with AsyncExitStack() as stack:
+            loop = NixLoop(stack, poll_every)
+            yield loop.needs_refresh
+
+
+@asynccontextmanager
+async def once() -> AsyncGenerator[Callable[[], Coroutine[None, None, bool]], None]:
+    """Run logic once."""
+    true_once = iter(chain((True,), repeat(False)))
+
+    async def run_once() -> bool:
+        return next(true_once)
+
+    yield run_once

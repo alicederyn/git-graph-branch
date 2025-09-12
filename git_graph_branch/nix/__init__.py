@@ -15,7 +15,7 @@ Usage:
             # Do I/O-based logic
 """
 
+from .loop import once, watcher
 from .patching import install
-from .watchers import once, watcher
 
 __all__ = ["install", "watcher", "once"]

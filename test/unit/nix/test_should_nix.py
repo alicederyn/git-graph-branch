@@ -2,7 +2,6 @@ import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
@@ -39,140 +38,128 @@ def last_check(tmp_path: Path) -> Iterator[datetime]:
 
 
 def test_single_file_not_modified(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.paths.add(CONFIG)
-    last_seen = {CONFIG}
+    cohort.seen = {CONFIG}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
 
 
 def test_single_file_created(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.paths.add(CONFIG)
     touch(CONFIG, last_check + timedelta(seconds=1))
 
-    result = should_nix(cohort, set(), last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_single_file_modified(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.paths.add(CONFIG)
     touch(CONFIG, last_check + timedelta(seconds=1))
-    last_seen = {CONFIG}
+    cohort.seen = {CONFIG}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_single_file_deleted(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.paths.add(CONFIG)
     CONFIG.unlink()
-    last_seen = {CONFIG}
+    cohort.seen = {CONFIG}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_single_file_never_present(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.paths.add(CONFIG)
     CONFIG.unlink()
 
-    result = should_nix(cohort, set(), last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
 
 
 def test_glob_not_modified(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
 
 
 def test_glob_file_added(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     touch(PACK_DIR / "3.pack", last_check + timedelta(seconds=1))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_glob_file_modified(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     touch(PACK2, last_check + timedelta(seconds=1))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_glob_file_deleted(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     PACK2.unlink()
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert result
 
 
 def test_glob_file_different_suffix(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     touch(PACK_DIR / "notapack", last_check + timedelta(seconds=1))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
 
 
 def test_glob_file_subdir(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     touch(PACK_DIR / "subdir" / "3.pack", last_check + timedelta(seconds=1))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
 
 
 def test_glob_file_superdir(last_check: datetime) -> None:
-    nixer = Mock()
-    cohort = Cohort(nix=nixer)
+    cohort = Cohort()
     cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
     touch(PACK_DIR.parent / "3.pack", last_check + timedelta(seconds=1))
-    last_seen = {PACK1, PACK2}
+    cohort.seen = {PACK1, PACK2}
 
-    result = should_nix(cohort, last_seen, last_check)
+    result = should_nix(cohort, last_check.timestamp())
 
     assert not result
