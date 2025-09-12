@@ -3,6 +3,7 @@ import pdb
 import signal
 import sys
 from argparse import SUPPRESS, ArgumentParser
+from contextlib import suppress
 from datetime import timedelta
 from logging import getLogger
 from types import TracebackType
@@ -11,7 +12,6 @@ from typing import Sequence, Type, TypeVar
 from .dag import layout
 from .display import Config, print_branch
 from .git import branches, compute_branch_dag
-from .log_config import configure_logging
 from .nix import once, watcher
 
 LOG = getLogger(__name__)
@@ -96,13 +96,7 @@ def clear_screen() -> None:
     sys.stdout.flush()
 
 
-async def amain(args: Sequence[str] | None = None) -> None:
-    await handle_signals()
-    is_tty = sys.stdout.isatty()
-    config = parse_args(args, is_tty=is_tty)
-    if config.pdb:
-        sys.excepthook = invoke_pdb_excepthook
-
+async def graph_branches(config: Config) -> None:
     async with (
         watcher(timedelta(seconds=config.poll_every)) if config.watch else once()
     ) as needs_refresh:
@@ -117,9 +111,12 @@ async def amain(args: Sequence[str] | None = None) -> None:
             sys.stdout.flush()
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    configure_logging()
-    try:
-        asyncio.run(amain(args))
-    except asyncio.CancelledError:
-        pass
+async def amain(args: Sequence[str] | None = None) -> None:
+    await handle_signals()
+    with suppress(asyncio.CancelledError):
+        is_tty = sys.stdout.isatty()
+        config = parse_args(args, is_tty=is_tty)
+        if config.pdb:
+            sys.excepthook = invoke_pdb_excepthook
+
+        await graph_branches(config)
