@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 from typing import AsyncGenerator, Callable, Coroutine, Iterator
@@ -9,11 +10,13 @@ import pytest
 
 from git_graph_branch.nix.cohort import Cohort, Glob
 
+from .utils import NEGATIVE_TIMEOUT, assert_called_async, flush_setup_events
+
 macosx = pytest.importorskip(
-    "git_graph_branch.nix.macosx", reason="macOS-specific FSEvents module"
+    "git_graph_branch.nix.macosx",
+    reason="macOS-specific FSEvents module",
+    exc_type=ImportError,
 )
-POSITIVE_TIMEOUT = 2.0
-NEGATIVE_TIMEOUT = 0.25
 
 
 def with_macosx_event_loop[**P](
@@ -81,34 +84,16 @@ def otherdir(tmp_path: Path) -> Path:
     return path
 
 
-async def flush_setup_events() -> None:
-    """Ensure we don't get an event from the file creation."""
-    await asyncio.sleep(0.1)
-
-
-async def assert_called_async(fn: Mock) -> None:
-    """Assert that fn is called, with a large timeout window to avoid flakes.
-
-    Replaces the mock's side effect.
-    """
-    called = asyncio.Event()
-    fn.side_effect = lambda *_args, **_kwargs: called.set()
-    try:
-        await asyncio.wait_for(called.wait(), POSITIVE_TIMEOUT)
-    except TimeoutError:
-        pass
-    fn.side_effect = None
-    fn.assert_called()
-
-
 @asynccontextmanager
 async def await_changes_and_nix_task(
     cohort: Cohort,
+    *,
+    latency: timedelta = timedelta(milliseconds=100),
 ) -> AsyncGenerator[asyncio.Task[None], None]:
     await flush_setup_events()
     until = asyncio.Event()
     macosx.add_cohort(cohort)
-    task = asyncio.create_task(macosx.await_changes_and_nix(until))
+    task = asyncio.create_task(macosx.await_changes_and_nix(until, latency=latency))
     try:
         yield task
     finally:
@@ -288,11 +273,15 @@ async def test_multiple_events_coalesced(
     f1.write_text("file1")
     f2.write_text("file2")
     cohort = Cohort(paths={f1})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    await stack.enter_async_context(
+        await_changes_and_nix_task(cohort, latency=timedelta(seconds=0.2))
+    )
 
     # WHEN
     f1.write_text("updated")
     f2.write_text("updated")
+    await asyncio.sleep(0.1)
+    f1.write_text("updated")
 
     # THEN
     await assert_called_async(nix_cohort_if_has_changes)
@@ -340,3 +329,31 @@ async def test_glob_change_in_different_dir(
 
     # THEN
     nix_cohort_if_has_changes.assert_not_called()
+
+
+@with_macosx_event_loop
+async def test_rglob_new_subdir(
+    nix_cohort_if_has_changes: Mock,
+    stack: AsyncExitStack,
+    dir: Path,
+) -> None:
+    # GIVEN a recursive glob is watched
+    (dir / "foo").mkdir()
+    watched = dir / "foo" / "watched.txt"
+    watched.write_text("init")
+    cohort = Cohort(
+        globs={Glob(base_path=dir, pattern="**/*.txt", case_sensitive=None)}
+    )
+    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+
+    # AND a new directory is created and the related event observed
+    (dir / "bar").mkdir()
+    await assert_called_async(nix_cohort_if_has_changes)
+    nix_cohort_if_has_changes.reset_mock()
+
+    # WHEN a new file is created in the new subdirectory
+    (dir / "bar" / "another.txt").write_text("init")
+
+    # THEN the second event is also spotted
+    await assert_called_async(nix_cohort_if_has_changes)
+    nix_cohort_if_has_changes.assert_called_with(cohort)

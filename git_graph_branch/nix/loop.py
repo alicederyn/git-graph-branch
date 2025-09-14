@@ -30,6 +30,13 @@ def efficient_await_and_nix_impl() -> (
     except ImportError:
         pass
 
+    try:
+        from .linux import await_changes_and_nix
+
+        return await_changes_and_nix
+    except ImportError:
+        pass
+
     return None
 
 

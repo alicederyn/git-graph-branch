@@ -3,12 +3,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .cohort import Cohort, on_add_cohort
+from .patching import PATH_STAT
 
 SAFETY_MARGIN = timedelta(seconds=1)
 cohort_timestamps: dict[Cohort, float] = {}
-
-# Capture Path methods before we patch them
-PATH_STAT = Path.stat
 
 
 def add_cohort(cohort: Cohort) -> None:

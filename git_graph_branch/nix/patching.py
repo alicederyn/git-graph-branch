@@ -4,12 +4,27 @@ import functools
 import sys
 from functools import wraps
 from pathlib import Path
+from stat import S_ISDIR
 from typing import Any, Callable, Iterator
 
 from . import console
 from .cohort import Glob, active_cohort
 
+# Capture Path methods before we patch them
+# Be careful not to capture methods that call other methods
+PATH_GLOB = Path.glob
 PATH_STAT = Path.stat
+
+
+def is_dir(path: Path) -> bool:
+    """Determine if path is a directory.
+
+    Reimplemented as Path.is_dir calls Path.stat
+    """
+    try:
+        return S_ISDIR(PATH_STAT(path, follow_symlinks=False).st_mode)
+    except FileNotFoundError:
+        return False
 
 
 def record_path_access(path: Path) -> None:
