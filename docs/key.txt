@@ -1,0 +1,21 @@
+─   A branch with no related braches
+
+┴   A branch with downstream branches
+
+┬   A branch with one upstream branch only
+
+├▶╴ A branch with one upstream branches only
+    (and the upstream branch has other downstream branches)
+
+┼   A branch with one upstream and one or more downstream branches
+
+├▶┘ A branch with one upstream and one or more downstream branches
+    (and the upstream branch has other downstream branches)
+
+┬◀┐ A branch with two merged upstream branches
+
+🔷  A remote branch exists with the same name and the same commit
+🔶  A remote branch exists with the same name
+
+[1 unmerged]  Upstream branches have unmerged commits
+
