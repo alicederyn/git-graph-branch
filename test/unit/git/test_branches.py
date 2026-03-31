@@ -55,3 +55,18 @@ def test_packed_branches(repo: Path) -> None:
     bs = set(branches())
 
     assert bs == {Branch("main"), Branch("a"), Branch("b")}
+
+
+def test_packed_branch_not_duplicated_with_loose_ref(repo: Path) -> None:
+    git_test_commit()
+    check_call(["git", "checkout", "-b", "feature"])
+    git_test_commit()
+    check_call(
+        ["git", "gc"]
+    )  # packs refs, so "feature" is now in packed-refs at old_hash
+
+    new_hash = git_test_commit()  # advance "feature", creating a loose ref
+
+    bs = [b for b in branches() if b.name == "feature"]
+    assert len(bs) == 1
+    assert bs[0].commit.hash == new_hash

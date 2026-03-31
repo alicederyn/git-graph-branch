@@ -150,11 +150,15 @@ class Branch(Ref):
 
 def branches() -> Iterator[Branch]:
     heads_dir = git_dir() / "refs" / "heads"
+    seen: set[str] = set()
     for p in Path.rglob(heads_dir, "*"):
         if p.is_file():
-            yield Branch(p)
+            branch = Branch(p)
+            seen.add(branch.name)
+            yield branch
     for p, commit in packed_refs().items():
         if p.is_relative_to(Path("heads")):
             branch = Branch(heads_dir.parent / p)
-            branch.commit = commit
-            yield branch
+            if branch.name not in seen:
+                branch.commit = commit
+                yield branch
