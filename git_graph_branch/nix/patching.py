@@ -120,7 +120,7 @@ def install_lru_cache_hook() -> None:
 
 def install_console_hooks() -> None:
     out = console.NixableIO(sys.stdout)
-    err = console.NixableIO(sys.stderr, hold_io=True)
+    err = console.NixableIO(sys.stderr)
     sys.stdout = console._nixable_stdout = out
     sys.stderr = console._nixable_stderr = err
 
