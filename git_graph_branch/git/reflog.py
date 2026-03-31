@@ -20,5 +20,9 @@ def reflog_from_line(line: str) -> ReflogEntry:
     return ReflogEntry(Commit(hash), int(unix_time))
 
 
+def reflog_mtime(path: Path) -> int:
+    return int(path.stat().st_mtime)
+
+
 def iter_reflog(path: Path) -> Iterator[ReflogEntry]:
     return (reflog_from_line(line) for line in readlines_reversed(path))

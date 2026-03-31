@@ -17,11 +17,18 @@ from .reflog import ReflogEntry
 
 class ChronoReflog:
     def __init__(
-        self, branch: Branch, *, iter: Iterator[ReflogEntry] | None = None
+        self, branch: Branch, *, reflog_iter: Iterator[ReflogEntry] | None = None
     ) -> None:
         self.branch = branch
-        self._iter = iter or branch.reflog()
-        self.reflog = next(self._iter)
+        self._iter = reflog_iter or branch.reflog()
+        try:
+            self.reflog = next(self._iter)
+        except StopIteration:
+            if reflog_iter is not None:
+                raise
+            # The reflog for this branch is empty
+            # Construct a single-entry synthetic reflog
+            self.reflog = ReflogEntry(branch.commit, branch.reflog_mtime())
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -35,12 +42,12 @@ class ChronoReflog:
 
     def next(self) -> "ChronoReflog | None":
         try:
-            iter = self._iter
+            reflog_iter = self._iter
         except AttributeError:
             raise RuntimeError("ChronoReflog.next can only be called once")
         del self.__dict__["_iter"]
         try:
-            return ChronoReflog(self.branch, iter=iter)
+            return ChronoReflog(self.branch, reflog_iter=reflog_iter)
         except StopIteration:
             return None
 

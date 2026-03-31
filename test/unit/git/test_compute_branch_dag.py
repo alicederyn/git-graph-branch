@@ -37,6 +37,9 @@ class MockBranch:
     def __repr__(self) -> str:
         return self._name
 
+    def reflog_mtime(self) -> int:
+        return self.commit.commit_date
+
     def reflog(self) -> Iterator[ReflogEntry]:
         for entry in self._reflog:
             if isinstance(entry, tuple):
@@ -161,6 +164,20 @@ def test_altered_history() -> None:
     dag = compute_branch_dag([x, y, z])
 
     assert dag == DAG(edges=[(x, y), (x, z), (y, z)])
+
+
+def test_empty_reflog() -> None:
+    # a -- b
+    # ↑    ↑
+    # X    Y (empty reflog)
+    a = mock_commit("a", 100)
+    b = mock_commit("b", 300, a)
+    x = mock_branch("X", a)
+    y = mock_branch("Y", b, x, reflog=[])
+
+    dag = compute_branch_dag([x, y])
+
+    assert dag == DAG(edges=[(x, y)])
 
 
 def test_overlapping_reflogs() -> None:

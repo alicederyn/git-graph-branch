@@ -7,7 +7,7 @@ from typing import Any, Iterator, TypeGuard, TypeVar, overload
 from .commit import Commit
 from .config import config
 from .path import git_dir
-from .reflog import ReflogEntry, iter_reflog
+from .reflog import ReflogEntry, iter_reflog, reflog_mtime
 
 T = TypeVar("T")
 
@@ -78,8 +78,12 @@ class Ref:
         return self.commit.timestamp
 
     def reflog(self) -> Iterator[ReflogEntry]:
-        reflog = git_dir() / "logs" / "refs" / self._relative_ref
-        return iter_reflog(reflog)
+        path = git_dir() / "logs" / "refs" / self._relative_ref
+        return iter_reflog(path)
+
+    def reflog_mtime(self) -> int:
+        path = git_dir() / "logs" / "refs" / self._relative_ref
+        return reflog_mtime(path)
 
 
 class RemoteBranch(Ref):
