@@ -154,6 +154,46 @@ class Branch(Ref):
         return b if b.exists() else None
 
 
+@cache
+def worktree_branches() -> set[str]:
+    """Return the set of branch names checked out in worktrees other than the current one."""
+    common = git_common_state()
+    working = git_working_state()
+    result: set[str] = set()
+
+    def _extract_branch(head_content: str) -> str | None:
+        head_content = head_content.strip()
+        if head_content.startswith("ref: refs/heads/"):
+            return head_content.removeprefix("ref: refs/heads/")
+        return None
+
+    # Main worktree: its state dir is git_common_state() itself
+    if working != common:
+        # We're in a linked worktree, so the main worktree is "other"
+        main_head = (common / "HEAD").open(encoding="utf-8").read()
+        branch = _extract_branch(main_head)
+        if branch is not None:
+            result.add(branch)
+
+    # Linked worktrees live under git_common_state() / "worktrees" / <name>
+    worktrees_dir = common / "worktrees"
+    if worktrees_dir.is_dir():
+        for entry in worktrees_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            # Skip the current worktree
+            if entry == working:
+                continue
+            head_file = entry / "HEAD"
+            if head_file.is_file():
+                head_content = head_file.open(encoding="utf-8").read()
+                branch = _extract_branch(head_content)
+                if branch is not None:
+                    result.add(branch)
+
+    return result
+
+
 def branches() -> Iterator[Branch]:
     heads_dir = git_common_state() / "refs" / "heads"
     seen: set[str] = set()

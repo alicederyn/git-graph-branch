@@ -11,7 +11,7 @@ from typing import Sequence, Type, TypeVar
 
 from .dag import layout
 from .display import Config, print_branch
-from .git import branches, compute_branch_dag
+from .git import branches, compute_branch_dag, worktree_branches
 from .nix import once, watcher
 
 LOG = getLogger(__name__)
@@ -105,9 +105,10 @@ async def graph_branches(config: Config) -> None:
                 clear_screen()
             dag = compute_branch_dag(list(branches()))
             art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
+            wt_branches = worktree_branches()
 
             for art, b in art_and_branches:
-                print_branch(art, b, config, dag.parents(b))
+                print_branch(art, b, config, dag.parents(b), wt_branches)
             sys.stdout.flush()
 
 

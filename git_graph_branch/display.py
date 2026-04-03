@@ -80,7 +80,11 @@ def compute_branch_color(b: Branch) -> object | None:
 
 
 def print_branch(
-    art: NodeArt, b: Branch, config: Config, parents: Iterable[Branch]
+    art: NodeArt,
+    b: Branch,
+    config: Config,
+    parents: Iterable[Branch],
+    worktree_branches: set[str],
 ) -> None:
     print(f"{art}  ", end="")
     reset = False
@@ -92,6 +96,8 @@ def print_branch(
     print(b, end="")
     if reset:
         print(color.fx.reset, end="")
+    if b.name in worktree_branches:
+        print(" 🌲", end="")
     if config.remote_icons:
         print(SYNC_STATUS_ICON[remote_sync_status(b)], end="")
 

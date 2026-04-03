@@ -78,3 +78,24 @@ async def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -
     out, err = capsys.readouterr()
     assert out == dedent(expected)
     assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+async def test_worktree_branch_indicator(
+    capsys: pytest.CaptureFixture[str], tmp_path: str
+) -> None:
+    git_test_commit()
+    check_call(["git", "branch", "feature"])
+    check_call(["git", "worktree", "add", f"{tmp_path}/wt", "feature"])
+
+    await amain([])
+
+    out, err = capsys.readouterr()
+    lines = out.splitlines()
+    feature_line = next(line for line in lines if "feature" in line)
+    main_line = next(line for line in lines if "main" in line)
+    assert "🌲" in feature_line
+    assert "🌲" not in main_line
+    assert err == ""
+
+    check_call(["git", "worktree", "remove", f"{tmp_path}/wt"])
