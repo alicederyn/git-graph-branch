@@ -8,7 +8,7 @@ from git_graph_branch.git.pack import packs
 from .utils import git_test_commit
 
 
-def test_packs_sorted_reverse_chronologically(repo: Path) -> None:
+def test_packs_sorted_reverse_chronologically(worktree: Path) -> None:
     git_test_commit()
     git_test_commit()
     check_call(["git", "repack"])
@@ -28,7 +28,7 @@ def test_packs_sorted_reverse_chronologically(repo: Path) -> None:
     assert mtime0 > mtime1 > mtime2
 
 
-def test_packs_with_identical_mtimes(repo: Path) -> None:
+def test_packs_with_identical_mtimes(repo: Path, worktree: Path) -> None:
     # See https://github.com/alicederyn/git-graph-branch/issues/7
     git_test_commit()
     git_test_commit()
@@ -41,7 +41,7 @@ def test_packs_with_identical_mtimes(repo: Path) -> None:
     check_call(["git", "repack"])
 
     # Force all pack objects to have the same mtime.
-    pack1, pack2, pack3 = Path(".git", "objects", "pack").glob("*.pack")
+    pack1, pack2, pack3 = (repo / ".git" / "objects" / "pack").glob("*.pack")
     stat = pack1.lstat()
     times = (stat.st_atime, stat.st_mtime)
     os.utime(pack2, times)

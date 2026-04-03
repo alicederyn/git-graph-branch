@@ -6,7 +6,7 @@ from git_graph_branch.git import Branch, Commit
 from .utils import git_test_commit
 
 
-def test_reflog_commits(repo: Path) -> None:
+def test_reflog_commits(worktree: Path) -> None:
     expected = []
     for i in range(10):
         hash = git_test_commit(message=f"Commit {i}")

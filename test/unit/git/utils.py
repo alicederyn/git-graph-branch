@@ -4,6 +4,8 @@ from subprocess import check_call, check_output
 from tempfile import TemporaryDirectory
 from typing import Optional
 
+from git_graph_branch.git.path import git_common_state
+
 
 def head_hash() -> str:
     return check_output(["git", "rev-parse", "HEAD"], encoding="ascii").strip()
@@ -56,7 +58,7 @@ def git_remote_repo(remote: str, /, **branches: str) -> None:
     ) as remote_repo:
         check_call(["git", "init"], cwd=remote_repo)
         rmtree(f"{remote_repo}/.git/objects")
-        copytree(".git/objects", f"{remote_repo}/.git/objects")
+        copytree(str(git_common_state() / "objects"), f"{remote_repo}/.git/objects")
         for branch, commit in branches.items():
             check_call(["git", "branch", branch, commit], cwd=remote_repo)
         check_call(["git", "remote", "add", remote, remote_repo])

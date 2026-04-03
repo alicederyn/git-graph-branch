@@ -6,21 +6,21 @@ from git_graph_branch.git import Commit
 from .utils import git_test_commit, git_test_merge
 
 
-def test_commit_single_line_message(repo: Path) -> None:
+def test_commit_single_line_message(worktree: Path) -> None:
     hash = git_test_commit(message="Blank commit")
     main = Commit(hash)
 
     assert main.message == b"Blank commit\n"
 
 
-def test_commit_multiline_message(repo: Path) -> None:
+def test_commit_multiline_message(worktree: Path) -> None:
     hash = git_test_commit(message="Commit\n\nWith no stuff")
     main = Commit(hash)
 
     assert main.message == b"Commit\n\nWith no stuff\n"
 
 
-def test_parents_simple_merge_tree(repo: Path) -> None:
+def test_parents_simple_merge_tree(worktree: Path) -> None:
     main_hash = git_test_commit()
 
     check_call(["git", "checkout", "-b", "foo"])
@@ -47,7 +47,7 @@ def test_parents_simple_merge_tree(repo: Path) -> None:
     assert foobar.first_parent == foo
 
 
-def test_packed_commits(repo: Path) -> None:
+def test_packed_commits(worktree: Path) -> None:
     hashes = []
     for n in range(10):
         hash = git_test_commit(message=f"Commit {n}")

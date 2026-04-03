@@ -4,7 +4,7 @@ from os import environ
 from pathlib import Path
 from typing import Iterator
 
-from .path import git_dir
+from .path import git_common_state
 
 Config = dict[str | tuple[str, str], dict[str, str]]
 
@@ -77,7 +77,7 @@ def config_paths() -> Iterator[Path]:
         xdg_config_home = Path(environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
         yield xdg_config_home / "git" / "config"
         yield Path.home() / ".gitconfig"
-    yield git_dir() / "config"
+    yield git_common_state() / "config"
 
 
 @cache

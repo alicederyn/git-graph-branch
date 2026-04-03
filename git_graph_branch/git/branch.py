@@ -6,7 +6,7 @@ from typing import Any, Iterator, TypeGuard, TypeVar, overload
 
 from .commit import Commit
 from .config import config
-from .path import git_dir
+from .path import git_common_state, git_working_state
 from .reflog import ReflogEntry, iter_reflog, reflog_mtime
 
 T = TypeVar("T")
@@ -18,7 +18,7 @@ def all_instances(items: tuple[Any, ...], _type: type[T]) -> TypeGuard[tuple[T, 
 
 @cache
 def git_head() -> str:
-    return (git_dir() / "HEAD").open(encoding="utf-8").read().strip()
+    return (git_working_state() / "HEAD").open(encoding="utf-8").read().strip()
 
 
 @cache
@@ -30,7 +30,7 @@ def packed_refs() -> dict[Path, Commit]:
     def get_commit(line: str) -> Commit:
         return Commit(line.split(" ")[0])
 
-    path = git_dir() / "packed-refs"
+    path = git_common_state() / "packed-refs"
     try:
         with open(path, "r", encoding="utf-8") as f:
             return {
@@ -46,7 +46,7 @@ def packed_refs() -> dict[Path, Commit]:
 class Ref:
     def __init__(self, ref: Path) -> None:
         self._ref = ref
-        self._relative_ref = self._ref.relative_to(git_dir() / "refs")
+        self._relative_ref = self._ref.relative_to(git_common_state() / "refs")
         # Lazily cached
         self._cached_commit: Commit | None = None
 
@@ -78,11 +78,11 @@ class Ref:
         return self.commit.timestamp
 
     def reflog(self) -> Iterator[ReflogEntry]:
-        path = git_dir() / "logs" / "refs" / self._relative_ref
+        path = git_common_state() / "logs" / "refs" / self._relative_ref
         return iter_reflog(path)
 
     def reflog_mtime(self) -> int:
-        path = git_dir() / "logs" / "refs" / self._relative_ref
+        path = git_common_state() / "logs" / "refs" / self._relative_ref
         return reflog_mtime(path)
 
 
@@ -98,9 +98,11 @@ class RemoteBranch(Ref):
             ref = args[0]
             assert isinstance(ref, Path)
         else:
-            ref = (git_dir() / "refs" / "remotes").joinpath(*args)
+            ref = (git_common_state() / "refs" / "remotes").joinpath(*args)
         super().__init__(ref)
-        self.remote, *subdirs = ref.relative_to(git_dir() / "refs" / "remotes").parts
+        self.remote, *subdirs = ref.relative_to(
+            git_common_state() / "refs" / "remotes"
+        ).parts
         self.name = Path(*subdirs).as_posix()
 
     def __str__(self) -> str:
@@ -113,10 +115,14 @@ class RemoteBranch(Ref):
 class Branch(Ref):
     def __init__(self, ref: Path | str) -> None:
         super().__init__(
-            ref if isinstance(ref, Path) else git_dir() / "refs" / "heads" / ref
+            ref
+            if isinstance(ref, Path)
+            else git_common_state() / "refs" / "heads" / ref
         )
         # Used frequently enough to eagerly cache
-        self.name = self._ref.relative_to(git_dir() / "refs" / "heads").as_posix()
+        self.name = self._ref.relative_to(
+            git_common_state() / "refs" / "heads"
+        ).as_posix()
 
     def __str__(self) -> str:
         return self.name
@@ -149,7 +155,7 @@ class Branch(Ref):
 
 
 def branches() -> Iterator[Branch]:
-    heads_dir = git_dir() / "refs" / "heads"
+    heads_dir = git_common_state() / "refs" / "heads"
     seen: set[str] = set()
     for p in Path.rglob(heads_dir, "*"):
         if p.is_file():

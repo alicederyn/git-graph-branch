@@ -5,7 +5,7 @@ from git_graph_branch.git import Commit, RemoteBranch
 from .utils import git_remote_repo, git_test_commit
 
 
-def test_init_one_arg(repo: Path) -> None:
+def test_init_one_arg(repo: Path, worktree: Path) -> None:
     ref = repo / ".git" / "refs" / "remotes" / "upstream" / "main"
     remote = RemoteBranch(ref)
 
@@ -14,7 +14,7 @@ def test_init_one_arg(repo: Path) -> None:
     assert repr(remote) == "git.RemoteBranch('upstream', 'main')"
 
 
-def test_init_one_arg_branch_with_a_slash(repo: Path) -> None:
+def test_init_one_arg_branch_with_a_slash(repo: Path, worktree: Path) -> None:
     ref = repo / ".git" / "refs" / "remotes" / "origin" / "features" / "foobar"
     remote = RemoteBranch(ref)
 
@@ -23,7 +23,7 @@ def test_init_one_arg_branch_with_a_slash(repo: Path) -> None:
     assert repr(remote) == "git.RemoteBranch('origin', 'features/foobar')"
 
 
-def test_init_two_args(repo: Path) -> None:
+def test_init_two_args(repo: Path, worktree: Path) -> None:
     remote = RemoteBranch("upstream", "main")
 
     assert remote._ref == repo / ".git" / "refs" / "remotes" / "upstream" / "main"
@@ -31,7 +31,7 @@ def test_init_two_args(repo: Path) -> None:
     assert repr(remote) == "git.RemoteBranch('upstream', 'main')"
 
 
-def test_init_two_args_branch_with_a_slash(repo: Path) -> None:
+def test_init_two_args_branch_with_a_slash(repo: Path, worktree: Path) -> None:
     remote = RemoteBranch("origin", "features/foobar")
 
     assert (
@@ -42,7 +42,7 @@ def test_init_two_args_branch_with_a_slash(repo: Path) -> None:
     assert repr(remote) == "git.RemoteBranch('origin', 'features/foobar')"
 
 
-def test_commit(repo: Path) -> None:
+def test_commit(worktree: Path) -> None:
     commit1 = git_test_commit()
     commit2 = git_test_commit()
     git_test_commit()
@@ -53,7 +53,7 @@ def test_commit(repo: Path) -> None:
     assert RemoteBranch("upstream", "main").commit == Commit(commit1)
 
 
-def test_commit_slash_in_name(repo: Path) -> None:
+def test_commit_slash_in_name(worktree: Path) -> None:
     commit1 = git_test_commit()
     git_test_commit()
     git_remote_repo("origin", **{"foo/bar": commit1})

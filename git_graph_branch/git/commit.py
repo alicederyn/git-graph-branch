@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from .decode import decompress
 from .object import GitObject
 from .pack import ObjectKind, packs
-from .path import git_dir
+from .path import git_common_state
 
 
 class Missing:
@@ -64,7 +64,7 @@ class Commit:
 
     def _git_object(self) -> GitObject:
         if self._cached_git_object is None:
-            filename = git_dir() / "objects" / self.hash[:2] / self.hash[2:]
+            filename = git_common_state() / "objects" / self.hash[:2] / self.hash[2:]
             try:
                 with open(filename, "rb") as f:
                     data = decompress(f)

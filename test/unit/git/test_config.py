@@ -4,7 +4,7 @@ from textwrap import dedent
 from git_graph_branch.git.config import config
 
 
-def test_combine_config_files(home_dir: Path, temp_working_dir: Path) -> None:
+def test_combine_config_files(home_dir: Path, repo: Path, worktree: Path) -> None:
     global_config = """\
         [user]
           name = Joe Bloggs
@@ -21,7 +21,7 @@ def test_combine_config_files(home_dir: Path, temp_working_dir: Path) -> None:
           url = https://example.org/joebloggs/some-repo.git
     """
     (home_dir / ".gitconfig").write_text(dedent(global_config))
-    (temp_working_dir / ".git" / "config").write_text(dedent(repo_config))
+    (repo / ".git" / "config").write_text(dedent(repo_config))
 
     all_config = config()
 

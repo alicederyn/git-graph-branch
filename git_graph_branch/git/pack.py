@@ -8,7 +8,7 @@ from typing import BinaryIO, Iterator, Type
 
 from .bloom import Bloom
 from .decode import apply_delta, decompress, read_offset, read_size
-from .path import git_dir
+from .path import git_common_state
 
 
 def hash_bytes_to_str(hash: bytes) -> str:
@@ -300,4 +300,4 @@ class PackDir:
 
 @cache
 def packs() -> PackDir:
-    return PackDir(git_dir() / "objects" / "pack")
+    return PackDir(git_common_state() / "objects" / "pack")

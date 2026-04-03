@@ -6,7 +6,7 @@ from git_graph_branch.git import Branch, Commit
 from .utils import git_test_commit
 
 
-def test_simple_names(repo: Path) -> None:
+def test_simple_names(worktree: Path) -> None:
     commit = git_test_commit()
     check_call(["git", "checkout", "main", "-b", "feature"])
 
@@ -14,19 +14,19 @@ def test_simple_names(repo: Path) -> None:
     assert Branch("feature").commit == Commit(commit)
 
 
-def test_hash_in_name(repo: Path) -> None:
+def test_hash_in_name(worktree: Path) -> None:
     commit = git_test_commit()
     check_call(["git", "checkout", "main", "-b", "foo#bar"])
     assert Branch("foo#bar").commit == Commit(commit)
 
 
-def test_quote_in_name(repo: Path) -> None:
+def test_quote_in_name(worktree: Path) -> None:
     commit = git_test_commit()
     check_call(["git", "checkout", "main", "-b", 'foo"bar'])
     assert Branch('foo"bar').commit == Commit(commit)
 
 
-def test_slash_in_name(repo: Path) -> None:
+def test_slash_in_name(worktree: Path) -> None:
     commit = git_test_commit()
     check_call(["git", "checkout", "main", "-b", "bug/101"])
     assert Branch("bug/101").commit == Commit(commit)

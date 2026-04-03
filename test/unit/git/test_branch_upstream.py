@@ -6,13 +6,13 @@ from git_graph_branch.git import Branch, RemoteBranch
 from .utils import git_test_commit
 
 
-def test_main_no_upstream(repo: Path) -> None:
+def test_main_no_upstream(worktree: Path) -> None:
     git_test_commit()
     b = Branch("main")
     assert b.upstream is None
 
 
-def test_main_remote_upstream(repo: Path) -> None:
+def test_main_remote_upstream(worktree: Path) -> None:
     git_test_commit()
     check_call(
         ["git", "remote", "add", "origin", "git@github.com:alicederyn/example.git"]
@@ -23,14 +23,14 @@ def test_main_remote_upstream(repo: Path) -> None:
     assert b.upstream == RemoteBranch("origin", "main")
 
 
-def test_upstream_is_main(repo: Path) -> None:
+def test_upstream_is_main(worktree: Path) -> None:
     git_test_commit()
     check_call(["git", "checkout", "-t", "-b", "feature"])
     b = Branch("feature")
     assert b.upstream == Branch("main")
 
 
-def test_quote_in_upstream(repo: Path) -> None:
+def test_quote_in_upstream(worktree: Path) -> None:
     git_test_commit()
     check_call(["git", "checkout", "-t", "-b", 'a"b'])
     check_call(["git", "checkout", "-t", "-b", "feature"])
@@ -38,7 +38,7 @@ def test_quote_in_upstream(repo: Path) -> None:
     assert b.upstream == Branch('a"b')
 
 
-def test_hash_in_upstream(repo: Path) -> None:
+def test_hash_in_upstream(worktree: Path) -> None:
     git_test_commit()
     check_call(["git", "checkout", "-t", "-b", "a#b"])
     check_call(["git", "checkout", "-t", "-b", "feature"])
@@ -46,7 +46,7 @@ def test_hash_in_upstream(repo: Path) -> None:
     assert b.upstream == Branch("a#b")
 
 
-def test_deleted_remote_upstream(repo: Path) -> None:
+def test_deleted_remote_upstream(repo: Path, worktree: Path) -> None:
     check_call(["git", "checkout", "-t", "-b", "a"])
     git_test_commit()
     check_call(
@@ -58,12 +58,12 @@ def test_deleted_remote_upstream(repo: Path) -> None:
     assert b.upstream == RemoteBranch("origin", "a")
 
     # Replicate a state we can get into with a `git fetch origin` call
-    Path(".git", "refs", "remotes", "origin", "a").unlink()
+    (repo / ".git" / "refs" / "remotes" / "origin" / "a").unlink()
 
     assert b.upstream is None
 
 
-def test_renamed_local_upstream(repo: Path) -> None:
+def test_renamed_local_upstream(worktree: Path) -> None:
     check_call(["git", "checkout", "-t", "-b", "a"])
     git_test_commit()
     check_call(["git", "checkout", "-t", "-b", "b"])
