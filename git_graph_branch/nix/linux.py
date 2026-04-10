@@ -155,11 +155,19 @@ async def await_changes_and_nix(
         fd = libc.inotify_init1(os.O_NONBLOCK)
     try:
         task = asyncio.create_task(watch_for_changes(fd, latency))
+        waiter = asyncio.create_task(until.wait())
         try:
-            await until.wait()
+            done, _ = await asyncio.wait(
+                [task, waiter], return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                task.result()  # raises if watch_for_changes failed
         finally:
             task.cancel()
+            waiter.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+            with suppress(asyncio.CancelledError):
+                await waiter
     finally:
         os.close(fd)
