@@ -251,3 +251,35 @@ async def test_rglob_new_subdir(
     # THEN the second event is also spotted
     await assert_called_async(nix_cohorts_with_changes)
     nix_cohorts_with_changes.assert_called()
+
+
+async def test_directory_deleted_before_watch(
+    nix_cohorts_with_changes: Mock,
+    stack: AsyncExitStack,
+    dir: Path,
+) -> None:
+    # GIVEN a file in a subdirectory is watched
+    subdir = dir / "ephemeral"
+    subdir.mkdir()
+    watched = subdir / "watched.txt"
+    watched.write_text("init")
+    cohort = Cohort(paths={watched})
+
+    # AND the watcher is started
+    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+
+    # WHEN the subdirectory is deleted (causing a re-watch cycle where
+    # directories_to_watch finds the directory but it's gone by the time
+    # inotify_add_watch runs)
+    original = linux.directories_to_watch
+
+    def inject_deleted_dir() -> set[Path]:
+        result = original()
+        result.add(subdir)
+        return result
+
+    watched.unlink()
+    subdir.rmdir()
+    with patch.object(linux, "directories_to_watch", inject_deleted_dir):
+        # THEN the watcher does not crash
+        await assert_called_async(nix_cohorts_with_changes)

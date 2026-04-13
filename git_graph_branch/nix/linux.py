@@ -115,7 +115,7 @@ def directories_to_watch() -> set[Path]:
 def watch_all(fd: int, paths: Collection[Path]) -> None:
     for path in paths:
         bytepath = bytes(path)
-        with errno_check(path):
+        with suppress(FileNotFoundError), errno_check(path):
             libc.inotify_add_watch(fd, bytepath, WATCH_MASK)
 
 
