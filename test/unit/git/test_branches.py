@@ -39,6 +39,14 @@ def test_slash_in_name(worktree: Path) -> None:
     assert bs == {Branch("main"), Branch("bug/101")}
 
 
+def test_lock_files_ignored(repo: Path, worktree: Path) -> None:
+    git_test_commit()
+    lock_file = repo / ".git" / "refs" / "heads" / "main.lock"
+    lock_file.write_text("0" * 40 + "\n")
+    bs = set(branches())
+    assert bs == {Branch("main")}
+
+
 def test_packed_branches(worktree: Path) -> None:
     git_test_commit()
     check_call(["git", "checkout", "-b", "a"])

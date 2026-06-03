@@ -198,7 +198,8 @@ def branches() -> Iterator[Branch]:
     heads_dir = git_common_state() / "refs" / "heads"
     seen: set[str] = set()
     for p in Path.rglob(heads_dir, "*"):
-        if p.is_file():
+        # Git creates .lock files alongside refs for atomic writes
+        if p.is_file() and p.suffix != ".lock":
             branch = Branch(p)
             seen.add(branch.name)
             yield branch
