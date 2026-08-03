@@ -74,8 +74,10 @@ class Commit:
                     if kind != ObjectKind.COMMIT:
                         raise KeyError()
                 except KeyError:
-                    self._cached_git_object = Missing()
-            self._cached_git_object = GitObject.decode(data)
+                    data = None
+            self._cached_git_object = (
+                GitObject.decode(data) if data is not None else Missing()
+            )
         if isinstance(self._cached_git_object, Missing):
             raise MissingCommit("Shallow clone: commit not found: " + self.hash)
         return self._cached_git_object

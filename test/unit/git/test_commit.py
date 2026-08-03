@@ -1,7 +1,10 @@
 from pathlib import Path
 from subprocess import check_call
 
+import pytest
+
 from git_graph_branch.git import Commit
+from git_graph_branch.git.commit import MissingCommit
 
 from .utils import git_test_commit, git_test_merge
 
@@ -45,6 +48,16 @@ def test_parents_simple_merge_tree(worktree: Path) -> None:
     assert bar.first_parent == main
     assert foobar.parents == (foo, bar)
     assert foobar.first_parent == foo
+
+
+def test_missing_commit_raises(worktree: Path) -> None:
+    """Simulates a shallow clone: a hash absent from both loose objects and packs."""
+    git_test_commit()
+    missing_hash = "0" * 40
+    commit = Commit(missing_hash)
+
+    with pytest.raises(MissingCommit):
+        commit.message
 
 
 def test_packed_commits(worktree: Path) -> None:
