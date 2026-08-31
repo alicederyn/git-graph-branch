@@ -46,8 +46,17 @@ class Cohort:
             nixer()
 
 
-active_cohort: ContextVar[Cohort | None] = ContextVar("active_cohorts", default=None)
+active_cohort: ContextVar[Cohort | None] = ContextVar("active_cohorts")
 on_add_cohort: list[Callable[[Cohort], None]] = []
+
+
+def get_active_cohort() -> Cohort | None:
+    try:
+        return active_cohort.get()
+    except LookupError:
+        raise RuntimeError(
+            "Filesystem accessed outside a nix context manager"
+        ) from None
 
 
 @contextmanager

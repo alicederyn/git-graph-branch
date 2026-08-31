@@ -8,7 +8,7 @@ from stat import S_ISDIR
 from typing import Any, Callable, Iterator
 
 from . import console
-from .cohort import Glob, active_cohort
+from .cohort import Glob, get_active_cohort
 
 # Capture Path methods before we patch them
 # Be careful not to capture methods that call other methods
@@ -28,7 +28,7 @@ def is_dir(path: Path) -> bool:
 
 
 def record_path_access(path: Path) -> None:
-    cohort = active_cohort.get()
+    cohort = get_active_cohort()
     if cohort is not None:
         cohort.paths.add(path)
         try:
@@ -74,7 +74,7 @@ def install_glob_hook() -> None:
     ) -> Iterator[Path]:
         if recurse_symlinks:
             raise RuntimeError("nix does not support recurse_symlinks")
-        cohort = active_cohort.get()
+        cohort = get_active_cohort()
         results = original_glob(self, pattern, case_sensitive=case_sensitive)
         if cohort is None:
             yield from results
@@ -102,7 +102,7 @@ def install_lru_cache_hook() -> None:
 
             @wraps(user_function)
             def cache_wrapper(*args: Any, **kwargs: Any) -> Any:
-                cohort = active_cohort.get()
+                cohort = get_active_cohort()
                 if cohort is not None:
                     cohort.on_nix.append(original_cache_wrapper.cache_clear)
                 return original_cache_wrapper(*args, **kwargs)

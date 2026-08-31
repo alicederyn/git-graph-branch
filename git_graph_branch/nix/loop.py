@@ -5,7 +5,7 @@ from datetime import timedelta
 from itertools import chain, repeat
 from typing import Literal
 
-from .cohort import Cohort, live_cohort_context
+from .cohort import Cohort, active_cohort, live_cohort_context
 from .console import flush_and_hold_io, flush_io_on_shutdown
 from .tracking import nix_cohorts_with_changes
 
@@ -95,4 +95,8 @@ async def once() -> AsyncGenerator[Callable[[], Coroutine[None, None, bool]], No
     async def run_once() -> bool:
         return next(true_once)
 
-    yield run_once
+    token = active_cohort.set(None)
+    try:
+        yield run_once
+    finally:
+        active_cohort.reset(token)
