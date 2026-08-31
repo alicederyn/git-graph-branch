@@ -3,9 +3,10 @@ from argparse import Namespace
 from enum import Enum
 from typing import Any, Iterable
 
-from ansi import color
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 
-from .dag import NodeArt
+from .dag import NodeArt, layout
+from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
 from .git.config import remote_push_default
@@ -67,45 +68,49 @@ def compute_unmerged(b: Branch, parents: Iterable[Branch]) -> int:
     return sum(1 for _ in unmerged_commits(b.commit, *parent_commits))
 
 
-def compute_branch_color(b: Branch) -> object | None:
+def branch_style(b: Branch) -> str:
     if b.is_head:
-        return color.fg.boldmagenta
+        return "class:branch.head"
     if isinstance(b.upstream, Branch) and not any(
         unmerged_commits(b.upstream.commit, b.commit)
     ):
         # If all commits are merged into the upstream branch, and the upstream is not a remote branch,
         # display the branch in grey to show it is safe to delete.
-        return color.fg.grey
-    return None
+        return "class:branch.merged"
+    return ""
 
 
-def print_branch(
+def branch_fragments(
     art: NodeArt,
     b: Branch,
     config: Config,
     parents: Iterable[Branch],
     worktree_branches: set[str],
-) -> None:
-    print(f"{art}  ", end="")
-    reset = False
-    if config.color:
-        branch_color = compute_branch_color(b)
-        if branch_color is not None:
-            print(branch_color, end="")
-            reset = True
-    print(b, end="")
-    if reset:
-        print(color.fx.reset, end="")
+) -> StyleAndTextTuples:
+    fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
     if b.name in worktree_branches:
-        print(" 🌲", end="")
+        fragments.append(("", " 🌲"))
     if config.remote_icons:
-        print(SYNC_STATUS_ICON[remote_sync_status(b)], end="")
-
+        icon = SYNC_STATUS_ICON[remote_sync_status(b)]
+        if icon:
+            fragments.append(("", icon))
     unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
-        if config.color:
-            print(color.fg.boldred, end="")
-        print(f" [{unmerged} unmerged]", end="")
-        if config.color:
-            print(color.fx.reset, end="")
-    print()
+        fragments.append(("class:unmerged", f" [{unmerged} unmerged]"))
+    return fragments
+
+
+def graph_rows(config: Config) -> list[StyleAndTextTuples]:
+    """Render every branch as one row of styled fragments.
+
+    This reads the filesystem, so it must be called inside the active nix
+    cohort. The rows it returns are a snapshot, so redrawing does not touch
+    the filesystem.
+    """
+    dag = compute_branch_dag(list(branches()))
+    art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
+    wt_branches = worktree_branches()
+    return [
+        branch_fragments(art, b, config, dag.parents(b), wt_branches)
+        for art, b in art_and_branches
+    ]

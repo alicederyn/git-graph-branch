@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import functools
-import sys
 from functools import wraps
 from pathlib import Path
 from stat import S_ISDIR
 from typing import Any, Callable, Iterator
 
-from . import console
-from .cohort import Glob, get_active_cohort
+from .cohort import Glob, active_cohort, get_active_cohort
 
 # Capture Path methods before we patch them
 # Be careful not to capture methods that call other methods
@@ -102,7 +100,7 @@ def install_lru_cache_hook() -> None:
 
             @wraps(user_function)
             def cache_wrapper(*args: Any, **kwargs: Any) -> Any:
-                cohort = get_active_cohort()
+                cohort = active_cohort.get(None)
                 if cohort is not None:
                     cohort.on_nix.append(original_cache_wrapper.cache_clear)
                 return original_cache_wrapper(*args, **kwargs)
@@ -118,13 +116,6 @@ def install_lru_cache_hook() -> None:
     setattr(functools, "lru_cache", lru_cache)
 
 
-def install_console_hooks() -> None:
-    out = console.NixableIO(sys.stdout)
-    err = console.NixableIO(sys.stderr)
-    sys.stdout = console._nixable_stdout = out
-    sys.stderr = console._nixable_stderr = err
-
-
 def install() -> None:
     """Monkeypatch common libraries to track filesystem access and data caching.
 
@@ -134,4 +125,3 @@ def install() -> None:
     install_path_hooks()
     install_glob_hook()
     install_lru_cache_hook()
-    install_console_hooks()

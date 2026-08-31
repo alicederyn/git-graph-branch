@@ -9,10 +9,9 @@ from logging import getLogger
 from types import TracebackType
 from typing import Sequence, Type, TypeVar
 
-from .dag import layout
-from .display import Config, print_branch
-from .git import branches, compute_branch_dag, worktree_branches
+from .display import Config, graph_rows
 from .nix import once, watcher
+from .ui import ShowRows, show_once, show_watching
 
 LOG = getLogger(__name__)
 T = TypeVar("T")
@@ -90,26 +89,16 @@ async def handle_signals() -> None:
     loop.add_signal_handler(signal.SIGTERM, cancel_task)
 
 
-def clear_screen() -> None:
-    # Clear the screen and move cursor to top-left corner
-    sys.stdout.write("\x1b[2J\x1b[0;0H")
-    sys.stdout.flush()
-
-
 async def graph_branches(config: Config) -> None:
-    async with (
-        watcher(timedelta(seconds=config.poll_every)) if config.watch else once()
-    ) as needs_refresh:
-        while await needs_refresh():
-            if config.watch:
-                clear_screen()
-            dag = compute_branch_dag(list(branches()))
-            art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
-            wt_branches = worktree_branches()
+    async def refresh(show: ShowRows) -> None:
+        async with (
+            watcher(timedelta(seconds=config.poll_every)) if config.watch else once()
+        ) as needs_refresh:
+            while await needs_refresh():
+                show(graph_rows(config))
 
-            for art, b in art_and_branches:
-                print_branch(art, b, config, dag.parents(b), wt_branches)
-            sys.stdout.flush()
+    show_ui = show_watching if config.watch else show_once
+    await show_ui(config, refresh)
 
 
 async def amain(args: Sequence[str] | None = None) -> None:

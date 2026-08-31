@@ -6,7 +6,6 @@ from itertools import chain, repeat
 from typing import Literal
 
 from .cohort import Cohort, active_cohort, live_cohort_context
-from .console import flush_and_hold_io, flush_io_on_shutdown
 from .tracking import nix_cohorts_with_changes
 
 
@@ -66,7 +65,6 @@ class NixLoop:
 
     async def needs_refresh(self) -> Literal[True]:
         if self._cohort:
-            flush_and_hold_io()
             await self._await_changes_and_nix(self._nixed)
             await self._stack.aclose()
         self._reset_cohort()
@@ -81,10 +79,9 @@ async def watcher(
     await_changes_and_nix = efficient_await_and_nix_impl() or (
         lambda until: poll_for_changes(poll_every, until)
     )
-    with flush_io_on_shutdown():
-        async with AsyncExitStack() as stack:
-            loop = NixLoop(stack, await_changes_and_nix)
-            yield loop.needs_refresh
+    async with AsyncExitStack() as stack:
+        loop = NixLoop(stack, await_changes_and_nix)
+        yield loop.needs_refresh
 
 
 @asynccontextmanager

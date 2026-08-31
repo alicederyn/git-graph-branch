@@ -12,6 +12,10 @@ from git_graph_branch.cli import amain
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
 
+def as_prompt_toolkit_output(text: str) -> str:
+    return dedent(text.removeprefix("\n")).replace("\n", "\r\n")
+
+
 def config_setup() -> None:
     check_call(["git", "config", "--global", "remote.pushdefault", "origin"])
 
@@ -43,40 +47,43 @@ def repo_setup() -> None:
 async def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
     config_setup()
     repo_setup()
-    expected = """\
+    expected = as_prompt_toolkit_output("""
         ┬◀┐  feature4 [1 unmerged]
         ┼ │  feature3
         │ ┼  feature2
         ├▶┘  feature1
         ├▶╴  merged.feature
         ┴  main
-    """
+    """)
 
     await amain([])
 
     out, err = capsys.readouterr()
-    assert out == dedent(expected)
+    assert out == expected
     assert err == ""
 
 
 @pytest.mark.usefixtures("repo")
 @patch("sys.stdout.isatty", new=lambda: True)
-async def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_simple_repository_graph_tty(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
     config_setup()
     repo_setup()
-    expected = """\
-        ┬◀┐  \x1b[1;35mfeature4\x1b[0m\x1b[1;31m [1 unmerged]\x1b[0m
+    expected = as_prompt_toolkit_output("""
+        \x1b[0m\x1b[?7h\x1b[0m┬◀┐  \x1b[0;35;1mfeature4\x1b[0;31;1m [1 unmerged]\x1b[0m
         ┼ │  feature3
         │ ┼  feature2 🔶
         ├▶┘  feature1 🔷
-        ├▶╴  \x1b[37mmerged.feature\x1b[0m
+        ├▶╴  \x1b[0;37mmerged.feature\x1b[0m
         ┴  main 🔷
-    """
+        \x1b[0m""")
 
     await amain([])
 
     out, err = capsys.readouterr()
-    assert out == dedent(expected)
+    assert out == expected
     assert err == ""
 
 
