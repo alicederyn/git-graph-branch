@@ -35,6 +35,18 @@ watch options:
   --poll-every SECS  If watching, how often to poll for changes (default: 1.0)
 ```
 
+### Watch mode
+
+```bash
+$ git graph-branch --watch
+```
+
+The graph takes over the terminal and updates whenever your branches or commits change. It opens on your current branch, and follows it when you check out another branch. Press `q` or Ctrl-C to quit.
+
+To see the rest of a long graph, scroll with the mouse wheel, the Up/Down arrow keys, Page Up/Page Down, or Home/End. If you scroll your current branch out of view, the graph stays where you left it. Once your branch is back in view, the graph follows it again.
+
+A plain drag does not select text in watch mode. In most terminals, hold Shift while you drag. In iTerm2, hold Option instead.
+
 ### Sample output
 
 ![Example repository Screenshot](docs/repo-screenshot.png)

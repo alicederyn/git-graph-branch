@@ -9,9 +9,9 @@ from logging import getLogger
 from types import TracebackType
 from typing import Sequence, Type, TypeVar
 
-from .display import Config, graph_rows
+from .display import Config, graph_frame
 from .nix import once, watcher
-from .ui import ShowRows, show_once, show_watching
+from .ui import ShowFrame, show_once, show_watching
 
 LOG = getLogger(__name__)
 T = TypeVar("T")
@@ -90,12 +90,12 @@ async def handle_signals() -> None:
 
 
 async def graph_branches(config: Config) -> None:
-    async def refresh(show: ShowRows) -> None:
+    async def refresh(show: ShowFrame) -> None:
         async with (
             watcher(timedelta(seconds=config.poll_every)) if config.watch else once()
         ) as needs_refresh:
             while await needs_refresh():
-                show(graph_rows(config))
+                show(graph_frame(config))
 
     show_ui = show_watching if config.watch else show_once
     await show_ui(config, refresh)

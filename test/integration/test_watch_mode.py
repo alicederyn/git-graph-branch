@@ -16,7 +16,10 @@ import pytest
 from ..unit.git.utils import git_test_commit
 
 CONTROL_C = b"\x03"
+WHEEL_UP = b"\x1b[<64;1;1M"  # SGR mouse report, button 64, at the top left
+PAGE_DOWN = b"\x1b[6~"
 FIRST_FRAME_TIMEOUT = 10.0
+REDRAW_TIMEOUT = 5.0
 EXIT_TIMEOUT = 5.0
 WINDOW_SIZE = (40, 100)  # rows, columns
 
@@ -32,7 +35,11 @@ ENTRYPOINT = [
 
 @contextmanager
 def pty_child(
-    args: Sequence[str], *, cwd: Path, env: Mapping[str, str] = {}
+    args: Sequence[str],
+    *,
+    cwd: Path,
+    window_size: tuple[int, int] = WINDOW_SIZE,
+    env: Mapping[str, str] = {},
 ) -> Iterator[tuple[subprocess.Popen[bytes], int]]:
     """Run args with a pseudoterminal for stdin and stdout.
 
@@ -42,7 +49,7 @@ def pty_child(
     """
     terminal, child_terminal = pty.openpty()
     try:
-        rows, columns = WINDOW_SIZE
+        rows, columns = window_size
         fcntl.ioctl(
             child_terminal, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0)
         )
@@ -94,10 +101,46 @@ def read_until(terminal: int, expected: bytes, deadline: float) -> bytes:
     return received
 
 
-def kill_and_read_errors(proc: subprocess.Popen[bytes]) -> str:
-    """Stop the child, which never exits by itself in watch mode, and read stderr."""
+def describe(received: bytes, proc: subprocess.Popen[bytes]) -> str:
+    """Report the terminal and the child's errors, for a failed assertion.
+
+    The child is killed first, as watch mode never exits on its own and its
+    errors are only readable up to end of file.
+    """
     proc.kill()
-    return proc.communicate(timeout=EXIT_TIMEOUT)[1].decode(errors="replace")
+    errors = proc.communicate(timeout=EXIT_TIMEOUT)[1].decode(errors="replace")
+    return f"terminal: {received.decode(errors='replace')!r}\nerrors: {errors}"
+
+
+def test_the_wheel_and_page_keys_move_the_window(repo: Path) -> None:
+    git_test_commit()
+    # No two names share a character, so a redraw that changes a row writes the
+    # whole name. Rows sort by name, descending, with main last.
+    for letter in "abcdefghijklmnopqrs":
+        subprocess.check_call(["git", "branch", letter * 3])
+    rows, columns = 6, 100
+
+    with pty_child([*ENTRYPOINT, "--watch"], cwd=repo, window_size=(rows, columns)) as (
+        proc,
+        terminal,
+    ):
+        # The window centres on main, which is the last of the twenty rows
+        frame = read_until(terminal, b"main", time.monotonic() + FIRST_FRAME_TIMEOUT)
+        assert b"main" in frame, describe(frame, proc)
+        assert b"sss" not in frame, describe(frame, proc)
+
+        os.write(terminal, WHEEL_UP * 20)
+        top = read_until(terminal, b"nnn", time.monotonic() + REDRAW_TIMEOUT)
+        assert b"sss" in top, describe(top, proc)
+
+        os.write(terminal, PAGE_DOWN)
+        paged = read_until(terminal, b"hhh", time.monotonic() + REDRAW_TIMEOUT)
+        assert b"mmm" in paged, describe(paged, proc)
+        assert b"hhh" in paged, describe(paged, proc)
+        assert b"nnn" not in paged, describe(paged, proc)
+
+        os.write(terminal, b"q")
+        assert proc.wait(timeout=EXIT_TIMEOUT) == 0
 
 
 @pytest.mark.parametrize("quit_key", [b"q", CONTROL_C])
@@ -109,10 +152,7 @@ def test_watch_mode_renders_then_quits(repo: Path, quit_key: bytes) -> None:
         frame = read_until(
             terminal, b"sidequest", time.monotonic() + FIRST_FRAME_TIMEOUT
         )
-        assert b"sidequest" in frame, (
-            f"terminal: {frame.decode(errors='replace')!r}\n"
-            f"errors: {kill_and_read_errors(proc)}"
-        )
+        assert b"sidequest" in frame, describe(frame, proc)
 
         os.write(terminal, quit_key)
         returncode = proc.wait(timeout=EXIT_TIMEOUT)
@@ -136,10 +176,7 @@ def test_watch_mode_color_flag_overrides_environment(
         frame = read_until(
             terminal, coloured_head, time.monotonic() + FIRST_FRAME_TIMEOUT
         )
-        assert coloured_head in frame, (
-            f"terminal: {frame.decode(errors='replace')!r}\n"
-            f"errors: {kill_and_read_errors(proc)}"
-        )
+        assert coloured_head in frame, describe(frame, proc)
 
         os.write(terminal, b"q")
         proc.wait(timeout=EXIT_TIMEOUT)
