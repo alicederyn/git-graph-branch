@@ -7,10 +7,9 @@ prompt_toolkit (ADR 0001); none of it is part of that change.
 
 - **Truncate overlong lines with an ellipsis in watch mode.**
   `Window(wrap_lines=False)` clips only. prompt_toolkit has no
-  truncate-to-width helper for fragment lists, so this needs a
-  `FormattedTextControl` subclass overriding `create_content(width, height)`,
-  plus a wcwidth-aware cut (`fragment_list_width`) because 🔶 🔷 🌲 are two
-  cells wide.
+  truncate-to-width helper for fragment lists, so this needs a wcwidth-aware
+  cut (`fragment_list_width`) in `ui.RowsControl.create_content`, because
+  🔶 🔷 🌲 are two cells wide.
 - **`--pdb` under a full-screen app.** `pdb.post_mortem` writes over the
   alternate screen. It needs `run_in_terminal`, or the app must exit first.
 - **Colour choice.** The "safe to delete" grey is SGR 37, which is nearly

@@ -1,7 +1,7 @@
 # coding=utf-8
 from argparse import Namespace
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 
@@ -22,6 +22,13 @@ class Config(Namespace):
     def __init__(self, *, is_tty: bool = False, **kwargs: Any) -> None:
         defaults = {"color": is_tty, "remote_icons": is_tty}
         super().__init__(**(kwargs | defaults), is_tty=is_tty)
+
+
+class Frame(NamedTuple):
+    """One rendering of the repository, and where the current branch is in it."""
+
+    rows: list[StyleAndTextTuples]
+    head: int | None
 
 
 class SyncStatus(Enum):
@@ -100,17 +107,19 @@ def branch_fragments(
     return fragments
 
 
-def graph_rows(config: Config) -> list[StyleAndTextTuples]:
+def graph_frame(config: Config) -> Frame:
     """Render every branch as one row of styled fragments.
 
     This reads the filesystem, so it must be called inside the active nix
-    cohort. The rows it returns are a snapshot, so redrawing does not touch
+    cohort. The frame it returns is a snapshot, so redrawing does not touch
     the filesystem.
     """
     dag = compute_branch_dag(list(branches()))
     art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
     wt_branches = worktree_branches()
-    return [
+    rows = [
         branch_fragments(art, b, config, dag.parents(b), wt_branches)
         for art, b in art_and_branches
     ]
+    head = next((i for i, (_, b) in enumerate(art_and_branches) if b.is_head), None)
+    return Frame(rows, head)

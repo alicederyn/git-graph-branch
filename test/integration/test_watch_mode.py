@@ -16,6 +16,8 @@ import pytest
 from ..unit.git.utils import git_test_commit
 
 CONTROL_C = b"\x03"
+WHEEL_UP = b"\x1b[<64;1;1M"  # SGR mouse report, button 64, at the top left
+PAGE_DOWN = b"\x1b[6~"
 FIRST_FRAME_TIMEOUT = 10.0
 EXIT_TIMEOUT = 5.0
 WINDOW_SIZE = (40, 100)  # rows, columns
@@ -32,7 +34,7 @@ ENTRYPOINT = [
 
 @contextmanager
 def pty_child(
-    args: Sequence[str], *, cwd: Path
+    args: Sequence[str], *, cwd: Path, window_size: tuple[int, int] = WINDOW_SIZE
 ) -> Iterator[tuple[subprocess.Popen[bytes], int]]:
     """Run args with a pseudoterminal for stdin and stdout.
 
@@ -42,7 +44,7 @@ def pty_child(
     """
     terminal, child_terminal = pty.openpty()
     try:
-        rows, columns = WINDOW_SIZE
+        rows, columns = window_size
         fcntl.ioctl(
             child_terminal, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0)
         )
@@ -93,6 +95,46 @@ def read_until(terminal: int, expected: bytes, deadline: float) -> bytes:
     return received
 
 
+def describe(received: bytes, proc: subprocess.Popen[bytes]) -> str:
+    """Report the terminal and the child's errors, for a failed assertion.
+
+    The child is killed first, as watch mode never exits on its own and its
+    errors are only readable up to end of file.
+    """
+    proc.kill()
+    assert proc.stderr is not None
+    errors = proc.stderr.read().decode(errors="replace")
+    return f"terminal: {received.decode(errors='replace')!r}\nerrors: {errors}"
+
+
+def test_scroll_wheel_moves_the_window(repo: Path) -> None:
+    git_test_commit()
+    for i in range(10):
+        subprocess.check_call(["git", "branch", f"b{i:02}"])
+    rows, columns = 6, 100
+
+    with pty_child([*ENTRYPOINT, "--watch"], cwd=repo, window_size=(rows, columns)) as (
+        proc,
+        terminal,
+    ):
+        # The window centres on main, which is the last of the eleven rows, so
+        # the newest branch is above the top of the window
+        frame = read_until(terminal, b"main", time.monotonic() + FIRST_FRAME_TIMEOUT)
+        assert b"main" in frame, describe(frame, proc)
+        assert b"b09" not in frame, describe(frame, proc)
+
+        os.write(terminal, WHEEL_UP * 5)
+        scrolled = read_until(terminal, b"b09", time.monotonic() + FIRST_FRAME_TIMEOUT)
+        assert b"b09" in scrolled, describe(scrolled, proc)
+
+        os.write(terminal, PAGE_DOWN)
+        paged = read_until(terminal, b"main", time.monotonic() + FIRST_FRAME_TIMEOUT)
+        assert b"main" in paged, describe(paged, proc)
+
+        os.write(terminal, b"q")
+        assert proc.wait(timeout=EXIT_TIMEOUT) == 0
+
+
 @pytest.mark.parametrize("quit_key", [b"q", CONTROL_C])
 def test_watch_mode_renders_then_quits(repo: Path, quit_key: bytes) -> None:
     git_test_commit()
@@ -102,10 +144,7 @@ def test_watch_mode_renders_then_quits(repo: Path, quit_key: bytes) -> None:
         frame = read_until(
             terminal, b"sidequest", time.monotonic() + FIRST_FRAME_TIMEOUT
         )
-        assert b"sidequest" in frame, (
-            f"terminal: {frame.decode(errors='replace')!r}\n"
-            f"errors: {proc.communicate()[1].decode(errors='replace')}"
-        )
+        assert b"sidequest" in frame, describe(frame, proc)
 
         os.write(terminal, quit_key)
         returncode = proc.wait(timeout=EXIT_TIMEOUT)
