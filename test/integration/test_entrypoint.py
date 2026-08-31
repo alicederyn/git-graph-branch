@@ -12,6 +12,10 @@ from git_graph_branch.cli import amain
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
 
+def as_prompt_toolkit_output(text: str) -> str:
+    return dedent(text.removeprefix("\n")).replace("\n", "\r\n")
+
+
 def config_setup() -> None:
     check_call(["git", "config", "--global", "remote.pushdefault", "origin"])
 
@@ -43,40 +47,76 @@ def repo_setup() -> None:
 async def test_simple_repository_graph(capsys: pytest.CaptureFixture[str]) -> None:
     config_setup()
     repo_setup()
-    expected = """\
+    expected = as_prompt_toolkit_output("""
         ┬◀┐  feature4 [1 unmerged]
         ┼ │  feature3
         │ ┼  feature2
         ├▶┘  feature1
         ├▶╴  merged.feature
         ┴  main
-    """
+    """)
 
     await amain([])
 
     out, err = capsys.readouterr()
-    assert out == dedent(expected)
+    assert out == expected
     assert err == ""
 
 
 @pytest.mark.usefixtures("repo")
 @patch("sys.stdout.isatty", new=lambda: True)
-async def test_simple_repository_graph_tty(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_simple_repository_graph_tty(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
     config_setup()
     repo_setup()
-    expected = """\
-        ┬◀┐  \x1b[1;35mfeature4\x1b[0m\x1b[1;31m [1 unmerged]\x1b[0m
+    expected = as_prompt_toolkit_output("""
+        \x1b[0m\x1b[?7h\x1b[0m┬◀┐  \x1b[0;35;1mfeature4\x1b[0;31;1m [1 unmerged]\x1b[0m
         ┼ │  feature3
         │ ┼  feature2 🔶
         ├▶┘  feature1 🔷
-        ├▶╴  \x1b[37mmerged.feature\x1b[0m
+        ├▶╴  \x1b[0;90mmerged.feature\x1b[0m
         ┴  main 🔷
-    """
+        \x1b[0m""")
 
     await amain([])
 
     out, err = capsys.readouterr()
-    assert out == dedent(expected)
+    assert out == expected
+    assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+@pytest.mark.parametrize("variable, value", [("TERM", "dumb"), ("NO_COLOR", "1")])
+async def test_color_flag_overrides_environment(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv(variable, value)
+    git_test_commit()
+
+    await amain(["--color"])
+
+    out, err = capsys.readouterr()
+    assert "\x1b[0;35;1mmain" in out
+    assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+@patch("sys.stdout.isatty", new=lambda: True)
+async def test_no_color_disables_default_color_on_tty(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    git_test_commit()
+
+    await amain([])
+
+    out, err = capsys.readouterr()
+    assert "\x1b[" not in out
     assert err == ""
 
 

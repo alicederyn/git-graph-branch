@@ -27,7 +27,7 @@ Pretty-print branch metadata
 
 options:
   -h, --help         show this help message and exit
-  --color            Display colorized output; defaults to true if the output is a TTY
+  --color            Display colorized output; defaults to true if the output is a TTY and NO_COLOR is not set
   --remote-icons     Display remote status icon; defaults to true if the output is a TTY
 
 watch options:

@@ -174,3 +174,17 @@ async def test_polling_invalidation_loop(nix_path: Any, stack: AsyncExitStack) -
         PACK2: "init",
         pack3: "init",
     }
+
+
+def test_cache_outside_a_nix_context_manager_does_not_raise() -> None:
+    """Only a cache of watched data needs a cohort, and reading watched data
+    through a patched Path method raises by itself outside one. Third-party
+    caches, such as wcwidth's while prompt_toolkit redraws, run outside any
+    cohort."""
+    nix.install()
+
+    @functools.cache
+    def double(value: int) -> int:
+        return value * 2
+
+    assert double(2) == 4
