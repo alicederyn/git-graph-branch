@@ -75,7 +75,7 @@ def compute_branch_color(b: Branch) -> object | None:
     ):
         # If all commits are merged into the upstream branch, and the upstream is not a remote branch,
         # display the branch in grey to show it is safe to delete.
-        return color.fg.grey
+        return color.fg.brightblack
     return None
 
 
