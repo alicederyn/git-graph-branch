@@ -65,12 +65,20 @@ than one general kind of data. We rejected it because each type needs its own
 rules for invalidation and release, and a cache entry is both an input and a
 computation.
 
-**An existing reactive library.** MobX and Meteor Tracker (JavaScript) have
-similar models, and reaktiv is a maintained Python library that tracks reads
-through a context variable. A library would give a tested algorithm. We rejected
-it because reaktiv, the closest match, cannot await inside a calculation, has no
-async data loader that coalesces loads, and gives no public notice when data is
-no longer needed.
+**An existing reactive library.** Not decided. A library would give a tested
+algorithm. MobX and Meteor Tracker (JavaScript) have similar models. Of the
+Python libraries, reaktiv 0.24.2 is the closest match. It records reads through
+a context variable, so the existing `Path` and `lru_cache` patches could report
+reads to it, and the code outside nix would not change. Its graph is synchronous
+and does not create or depend on an event loop, so it works with
+`RubiconEventLoop` on macOS. But its computed values are synchronous, so a
+calculation cannot await a load inside one. Its `Resource` type gives a
+"loading" value, not an awaited result, and it does not batch loads. It gives no
+public notice when data is no longer depended upon, and its graph module is not
+public API. observ 1.0.1 records reads in a class-level list, not a context
+variable, so its tracking does not survive an `await`, and it creates its own
+event loop. `shiny.reactive` has a model close to nix, but it is part of the
+Shiny web framework package.
 
 **A file bridge.** A poller writes network data to a file, and the filesystem
 tracking reads it. nix does not change. We rejected it because it writes
