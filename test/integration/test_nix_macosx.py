@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from git_graph_branch.nix.cohort import Cohort, Glob
+from git_graph_branch.nix.files import FileState, Glob, GlobState, PathState
 
 from .utils import NEGATIVE_TIMEOUT, assert_called_async, flush_setup_events
 
@@ -59,14 +59,14 @@ async def in_stack[**P](
 
 
 @pytest.fixture(autouse=True)
-def cohort_event_ids() -> Iterator[dict[Cohort, int]]:
-    with patch.dict(macosx.cohort_event_ids, clear=True) as d:
+def state_event_ids() -> Iterator[dict[FileState, int]]:
+    with patch.dict(macosx.state_event_ids, clear=True) as d:
         yield d
 
 
 @pytest.fixture(autouse=True)
-def nix_cohort_if_has_changes() -> Iterator[Mock]:
-    with patch.object(macosx, "nix_cohort_if_has_changes") as mock:
+def nix_changed_file_states() -> Iterator[Mock]:
+    with patch.object(macosx, "nix_changed_file_states") as mock:
         yield mock
 
 
@@ -86,13 +86,13 @@ def otherdir(tmp_path: Path) -> Path:
 
 @asynccontextmanager
 async def await_changes_and_nix_task(
-    cohort: Cohort,
+    state: FileState,
     *,
     latency: timedelta = timedelta(milliseconds=100),
 ) -> AsyncGenerator[asyncio.Task[None], None]:
     await flush_setup_events()
     until = asyncio.Event()
-    macosx.add_cohort(cohort)
+    macosx.add_file_state(state)
     task = asyncio.create_task(macosx.await_changes_and_nix(until, latency=latency))
     try:
         yield task
@@ -103,94 +103,94 @@ async def await_changes_and_nix_task(
 
 @with_macosx_event_loop
 async def test_path_no_changes(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=True)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     await asyncio.sleep(NEGATIVE_TIMEOUT)
 
     # THEN
-    nix_cohort_if_has_changes.assert_not_called()
+    nix_changed_file_states.assert_not_called()
 
 
 @with_macosx_event_loop
 async def test_path_touched(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=True)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     watched.write_text("updated")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_path_created(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=False)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     watched.write_text("created")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_path_deleted(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=True)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     watched.unlink()
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_dir_deletion_race(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN we capture the event ID early
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(paths={watched})
+    state = PathState(watched, existed=True)
     await flush_setup_events()
-    macosx.add_cohort(cohort)
+    macosx.add_file_state(state)
 
     # AND the underlying directory is deleted
     watched.unlink()
@@ -204,43 +204,43 @@ async def test_dir_deletion_race(
     stack.callback(until.set)
 
     # THEN the nix logic is still called
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_path_two_changes(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=True)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     watched.write_text("updated")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
     # GIVEN
-    nix_cohort_if_has_changes.reset_mock()
+    nix_changed_file_states.reset_mock()
 
     # WHEN
     watched.write_text("updated again")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_path_change_in_different_dir(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
     otherdir: Path,
@@ -250,20 +250,20 @@ async def test_path_change_in_different_dir(
     unwatched = otherdir / "unwatched.txt"
     watched.write_text("init")
     unwatched.write_text("init")
-    cohort = Cohort(paths={watched})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = PathState(watched, existed=True)
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     unwatched.write_text("updated")
     await asyncio.sleep(NEGATIVE_TIMEOUT)
 
     # THEN
-    nix_cohort_if_has_changes.assert_not_called()
+    nix_changed_file_states.assert_not_called()
 
 
 @with_macosx_event_loop
 async def test_multiple_events_coalesced(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
@@ -272,9 +272,9 @@ async def test_multiple_events_coalesced(
     f2 = dir / "other.txt"
     f1.write_text("file1")
     f2.write_text("file2")
-    cohort = Cohort(paths={f1})
+    state = PathState(f1, existed=True)
     await stack.enter_async_context(
-        await_changes_and_nix_task(cohort, latency=timedelta(seconds=0.2))
+        await_changes_and_nix_task(state, latency=timedelta(seconds=0.2))
     )
 
     # WHEN
@@ -284,33 +284,35 @@ async def test_multiple_events_coalesced(
     f1.write_text("updated")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_once()
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_once()
 
 
 @with_macosx_event_loop
 async def test_glob_touched(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
     # GIVEN
     watched = dir / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(globs={Glob(base_path=dir, pattern="*.txt", case_sensitive=None)})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = GlobState(
+        Glob(base_path=dir, pattern="*.txt", case_sensitive=None), seen=set()
+    )
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     watched.write_text("updated")
 
     # THEN
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()
 
 
 @with_macosx_event_loop
 async def test_glob_change_in_different_dir(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
     otherdir: Path,
@@ -320,20 +322,22 @@ async def test_glob_change_in_different_dir(
     unwatched = otherdir / "unwatched.txt"
     watched.write_text("init")
     unwatched.write_text("init")
-    cohort = Cohort(globs={Glob(base_path=dir, pattern="*.txt", case_sensitive=None)})
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    state = GlobState(
+        Glob(base_path=dir, pattern="*.txt", case_sensitive=None), seen=set()
+    )
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # WHEN
     unwatched.write_text("updated")
     await asyncio.sleep(NEGATIVE_TIMEOUT)
 
     # THEN
-    nix_cohort_if_has_changes.assert_not_called()
+    nix_changed_file_states.assert_not_called()
 
 
 @with_macosx_event_loop
 async def test_rglob_new_subdir(
-    nix_cohort_if_has_changes: Mock,
+    nix_changed_file_states: Mock,
     stack: AsyncExitStack,
     dir: Path,
 ) -> None:
@@ -341,19 +345,19 @@ async def test_rglob_new_subdir(
     (dir / "foo").mkdir()
     watched = dir / "foo" / "watched.txt"
     watched.write_text("init")
-    cohort = Cohort(
-        globs={Glob(base_path=dir, pattern="**/*.txt", case_sensitive=None)}
+    state = GlobState(
+        Glob(base_path=dir, pattern="**/*.txt", case_sensitive=None), seen=set()
     )
-    await stack.enter_async_context(await_changes_and_nix_task(cohort))
+    await stack.enter_async_context(await_changes_and_nix_task(state))
 
     # AND a new directory is created and the related event observed
     (dir / "bar").mkdir()
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.reset_mock()
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.reset_mock()
 
     # WHEN a new file is created in the new subdirectory
     (dir / "bar" / "another.txt").write_text("init")
 
     # THEN the second event is also spotted
-    await assert_called_async(nix_cohort_if_has_changes)
-    nix_cohort_if_has_changes.assert_called_with(cohort)
+    await assert_called_async(nix_changed_file_states)
+    nix_changed_file_states.assert_called_with()

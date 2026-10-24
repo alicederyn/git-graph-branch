@@ -1,12 +1,17 @@
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from datetime import timedelta
-from itertools import chain, repeat
 from typing import Literal
 
-from .cohort import Cohort, active_cohort, live_cohort_context
-from .tracking import nix_cohorts_with_changes
+from .fact import (
+    release_moot_facts,
+    report_calculation,
+    run_background_task,
+    session,
+    when_safe_to_nix,
+)
+from .files import nix_changed_file_states, track_file_changes
 
 
 def loop_factory() -> Callable[[], asyncio.AbstractEventLoop] | None:
@@ -42,32 +47,22 @@ def efficient_await_and_nix_impl() -> (
 async def poll_for_changes(poll_every: timedelta, until: asyncio.Event) -> None:
     while not until.is_set():
         await asyncio.sleep(poll_every.total_seconds())
-        nix_cohorts_with_changes()
+        when_safe_to_nix(nix_changed_file_states)
 
 
 class NixLoop:
-    def __init__(
-        self,
-        stack: AsyncExitStack,
-        await_changes_and_nix: Callable[[asyncio.Event], Coroutine[None, None, None]],
-    ) -> None:
+    def __init__(self, stack: ExitStack) -> None:
         self._stack = stack
-        self._await_changes_and_nix = await_changes_and_nix
-        self._nixed = asyncio.Event()
-        self._cohort: Cohort | None = None
-
-    def _reset_cohort(self) -> None:
-        self._cohort = Cohort()
-        self._cohort.on_nix.append(self._nixed.set)
-        self._stack.callback(self._nixed.clear)
-        self._stack.callback(self._cohort.nix)
-        self._stack.enter_context(live_cohort_context(self._cohort))
+        self._nixed: asyncio.Event | None = None
 
     async def needs_refresh(self) -> Literal[True]:
-        if self._cohort:
-            await self._await_changes_and_nix(self._nixed)
-            await self._stack.aclose()
-        self._reset_cohort()
+        self._stack.close()
+        if self._nixed:
+            release_moot_facts()
+            await self._nixed.wait()
+        self._nixed = asyncio.Event()
+        report = self._stack.enter_context(report_calculation())
+        report.on_nix(self._nixed.set)
         return True
 
 
@@ -79,21 +74,25 @@ async def watcher(
     await_changes_and_nix = efficient_await_and_nix_impl() or (
         lambda until: poll_for_changes(poll_every, until)
     )
-    async with AsyncExitStack() as stack:
-        loop = NixLoop(stack, await_changes_and_nix)
-        yield loop.needs_refresh
+    async with asyncio.TaskGroup() as task_group:
+        with session(task_group), ExitStack() as stack:
+            run_background_task(track_file_changes(await_changes_and_nix))
+            yield NixLoop(stack).needs_refresh
 
 
 @asynccontextmanager
 async def once() -> AsyncGenerator[Callable[[], Coroutine[None, None, bool]], None]:
     """Run logic once."""
-    true_once = iter(chain((True,), repeat(False)))
+    with session(None), ExitStack() as stack:
+        started = False
 
-    async def run_once() -> bool:
-        return next(true_once)
+        async def run_once() -> bool:
+            nonlocal started
+            if started:
+                stack.close()
+                return False
+            started = True
+            stack.enter_context(report_calculation())
+            return True
 
-    token = active_cohort.set(None)
-    try:
         yield run_once
-    finally:
-        active_cohort.reset(token)

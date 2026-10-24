@@ -114,8 +114,8 @@ def branch_fragments(
 def graph_frame(config: Config) -> Frame:
     """Render every branch as one row of styled fragments, and find HEAD's row.
 
-    This reads the filesystem, so it must be called inside the active nix
-    cohort. The frame it returns is a snapshot, so redrawing does not touch
+    This reads the filesystem, so it must be called inside a nix report
+    calculation. The frame it returns is a snapshot, so redrawing does not touch
     the filesystem.
     """
     dag = compute_branch_dag(list(branches()))
