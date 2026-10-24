@@ -2,7 +2,8 @@
 
 Monkeypatches common libraries to track filesystem access and data caching,
 allowing filesystem monitoring to be implemented orthogonally to the
-main logic of the program.
+main logic of the program. Each file state and each cache entry is a Fact
+(see fact.py), so a change nixes only the calculations that depend on it.
 
 Usage:
     import asyncio

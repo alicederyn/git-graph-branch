@@ -1,39 +1,13 @@
 from __future__ import annotations
 
 import functools
+from collections import OrderedDict
 from functools import wraps
 from pathlib import Path
-from stat import S_ISDIR
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Hashable, Iterator
 
-from .cohort import Glob, active_cohort, get_active_cohort
-
-# Capture Path methods before we patch them
-# Be careful not to capture methods that call other methods
-PATH_GLOB = Path.glob
-PATH_STAT = Path.stat
-
-
-def is_dir(path: Path) -> bool:
-    """Determine if path is a directory.
-
-    Reimplemented as Path.is_dir calls Path.stat
-    """
-    try:
-        return S_ISDIR(PATH_STAT(path, follow_symlinks=False).st_mode)
-    except FileNotFoundError:
-        return False
-
-
-def record_path_access(path: Path) -> None:
-    cohort = get_active_cohort()
-    if cohort is not None:
-        cohort.paths.add(path)
-        try:
-            PATH_STAT(path)
-            cohort.seen.add(path)
-        except FileNotFoundError:
-            pass
+from .fact import Fact
+from .files import Glob, record_glob, record_path
 
 
 def wrap_simple_path_method[**P, T](orig_method: Callable[P, T]) -> Callable[P, T]:
@@ -41,7 +15,7 @@ def wrap_simple_path_method[**P, T](orig_method: Callable[P, T]) -> Callable[P, 
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         path = args[0]
         assert isinstance(path, Path)
-        record_path_access(path)
+        record_path(path)
         return orig_method(*args, **kwargs)
 
     return wrapper
@@ -72,46 +46,72 @@ def install_glob_hook() -> None:
     ) -> Iterator[Path]:
         if recurse_symlinks:
             raise RuntimeError("nix does not support recurse_symlinks")
-        cohort = get_active_cohort()
-        results = original_glob(self, pattern, case_sensitive=case_sensitive)
-        if cohort is None:
-            yield from results
-        else:
-            cohort.globs.add(Glob(self, str(pattern), case_sensitive=case_sensitive))
-            for path in results:
-                cohort.seen.add(path)
-                yield path
+        results = list(original_glob(self, pattern, case_sensitive=case_sensitive))
+        record_glob(Glob(self, str(pattern), case_sensitive), results)
+        yield from results
 
     setattr(Path, "glob", glob)
 
 
+def nix_cache(
+    user_function: Callable[..., Any], maxsize: int | None, typed: bool
+) -> Any:
+    """Cache each result as a fact, so that nix drops only the entries that change."""
+    entries: OrderedDict[Hashable, tuple[Fact, Any]] = OrderedDict()
+    hits = misses = 0
+
+    def drop(key: Hashable, fact: Fact) -> None:
+        entry = entries.get(key)
+        if entry is not None and entry[0] is fact:
+            del entries[key]
+
+    @wraps(user_function)
+    def cache_wrapper(*args: Any, **kwargs: Any) -> Any:
+        nonlocal hits, misses
+        key = functools._make_key(args, kwargs, typed)
+        entry = entries.get(key)
+        if entry is not None:
+            hits += 1
+            entries.move_to_end(key)
+            fact, value = entry
+            fact.record_use()
+            return value
+        misses += 1
+        fact = Fact()
+        fact.on_nix(fact.on_moot(drop, key, fact))
+        with fact.calculation():
+            value = user_function(*args, **kwargs)
+        entries[key] = (fact, value)
+        if maxsize is not None and len(entries) > maxsize:
+            entries.popitem(last=False)
+        return value
+
+    def cache_info() -> functools._CacheInfo:
+        return functools._CacheInfo(hits, misses, maxsize, len(entries))
+
+    def cache_clear() -> None:
+        nonlocal hits, misses
+        entries.clear()
+        hits = misses = 0
+
+    def cache_parameters() -> dict[str, Any]:
+        return {"maxsize": maxsize, "typed": typed}
+
+    result: Any = cache_wrapper  # Disable type validation
+    result.cache_info = cache_info
+    result.cache_clear = cache_clear
+    result.cache_parameters = cache_parameters
+    return result
+
+
 def install_lru_cache_hook() -> None:
-    original_lru_cache = functools.lru_cache
-
-    @wraps(original_lru_cache)
-    def lru_cache(
-        *args: Any, **kwargs: Any
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        create_cache_wrapper = original_lru_cache(*args, **kwargs)
-
-        @wraps(create_cache_wrapper)
-        def create_cache(user_function: Callable[..., Any]) -> Any:
-            original_cache_wrapper = create_cache_wrapper(user_function)
-
-            @wraps(user_function)
-            def cache_wrapper(*args: Any, **kwargs: Any) -> Any:
-                cohort = active_cohort.get(None)
-                if cohort is not None:
-                    cohort.on_nix.append(original_cache_wrapper.cache_clear)
-                return original_cache_wrapper(*args, **kwargs)
-
-            result: Any = cache_wrapper  # Disable type validation
-            result.cache_clear = original_cache_wrapper.cache_clear
-            result.cache_info = original_cache_wrapper.cache_info
-            result.cache_parameters = original_cache_wrapper.cache_parameters
-            return result
-
-        return create_cache
+    @wraps(functools.lru_cache)
+    def lru_cache(maxsize: Any = 128, typed: bool = False) -> Any:
+        if callable(maxsize):
+            return nix_cache(maxsize, 128, typed)
+        if maxsize is not None:
+            maxsize = max(maxsize, 0)
+        return lambda user_function: nix_cache(user_function, maxsize, typed)
 
     setattr(functools, "lru_cache", lru_cache)
 

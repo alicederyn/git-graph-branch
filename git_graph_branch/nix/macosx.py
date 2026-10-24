@@ -6,7 +6,7 @@ event occurs.
 """
 
 import asyncio
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -27,8 +27,14 @@ from rubicon.objc import NSArray  # type: ignore[import-untyped]
 from rubicon.objc.eventloop import RubiconEventLoop  # type: ignore[import-untyped]
 from rubicon.objc.runtime import load_library  # type: ignore[import-untyped]
 
-from .cohort import Cohort, on_add_cohort
-from .tracking import nix_cohort_if_has_changes
+from .fact import when_safe_to_nix
+from .files import (
+    FileState,
+    GlobState,
+    PathState,
+    nix_changed_file_states,
+    on_add_file_state,
+)
 
 libcf = load_library("CoreFoundation")
 libcs = load_library("CoreServices")
@@ -97,7 +103,7 @@ kFSEventStreamEventFlagHistoryDone flag is set. The client should ignore the
 path supplied in this callback.
 """
 
-cohort_event_ids: dict[Cohort, int] = {}
+state_event_ids: dict[FileState, int] = {}
 
 
 def macosx_event_loop() -> asyncio.AbstractEventLoop:
@@ -105,13 +111,13 @@ def macosx_event_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def add_cohort(cohort: Cohort) -> None:
+def add_file_state(state: FileState) -> None:
     current_event_id = libcs.FSEventsGetCurrentEventId()
-    cohort_event_ids[cohort] = current_event_id
-    cohort.on_nix.append(lambda: cohort_event_ids.pop(cohort))
+    state_event_ids[state] = current_event_id
+    state.fact.on_nix(state.fact.on_moot(state_event_ids.pop, state))
 
 
-on_add_cohort.append(add_cohort)
+on_add_file_state.append(add_file_state)
 
 
 def main_dispatch_queue() -> c_void_p:
@@ -179,30 +185,37 @@ def fs_event_stream(
         libcs.FSEventStreamRelease(event_stream)
 
 
-@contextmanager
-def await_changes_on_cohort(cohort: Cohort, latency: timedelta) -> Iterator[None]:
-    event_id = cohort_event_ids[cohort]
-
+def directories_to_watch() -> set[Path]:
     directories: set[Path] = set()
-    for path in cohort.paths:
-        # Assume all paths are files
-        directories.add(path.parent)
-    for glob in cohort.globs:
-        directories.add(glob.base_path)
+    for state in state_event_ids:
+        match state:
+            case PathState(path=path):
+                # Assume all paths are files
+                directories.add(path.parent)
+            case GlobState(glob=glob):
+                directories.add(glob.base_path)
+    return directories
+
+
+@contextmanager
+def await_changes_on_file_states(latency: timedelta) -> Iterator[None]:
+    if not state_event_ids:
+        yield
+        return
 
     with fs_event_stream(
-        starting_event_id=event_id,
-        directories=directories,
-        callback=lambda: nix_cohort_if_has_changes(cohort),
+        starting_event_id=min(state_event_ids.values()),
+        directories=directories_to_watch(),
+        callback=lambda: when_safe_to_nix(nix_changed_file_states),
         latency=latency,
     ) as event_stream:
         try:
             yield
         finally:
-            if cohort in cohort_event_ids:
-                # Resume the stream where we left off next time we await
-                event_id = libcs.FSEventStreamGetLatestEventId(event_stream)
-                cohort_event_ids[cohort] = event_id
+            # Resume the stream where we left off next time we await
+            latest_event_id = libcs.FSEventStreamGetLatestEventId(event_stream)
+            for state, event_id in state_event_ids.items():
+                state_event_ids[state] = max(event_id, latest_event_id)
 
 
 async def await_changes_and_nix(
@@ -219,7 +232,5 @@ async def await_changes_and_nix(
             may result in more effective temporal coalescing, resulting in fewer
             callbacks and greater overall efficiency.
     """
-    with ExitStack() as stack:
-        for cohort in cohort_event_ids:
-            stack.enter_context(await_changes_on_cohort(cohort, latency))
+    with await_changes_on_file_states(latency):
         await until.wait()

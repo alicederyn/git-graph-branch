@@ -115,8 +115,8 @@ def nix_path() -> Iterator[Any]:
 
     with (
         patch.object(nix.patching, "Path", FakePath),
-        patch.object(nix.patching, "PATH_STAT", FakePath.stat),
-        patch.object(nix.tracking, "PATH_STAT", FakePath.stat),
+        patch.object(nix.files, "PATH_GLOB", FakePath.glob),
+        patch.object(nix.files, "PATH_STAT", FakePath.stat),
     ):
         yield FakePath
 
@@ -176,11 +176,48 @@ async def test_polling_invalidation_loop(nix_path: Any, stack: AsyncExitStack) -
     }
 
 
+@patch.object(nix.loop, "efficient_await_and_nix_impl", lambda: None)
+async def test_change_recomputes_only_dependent_cache_entries(
+    nix_path: Any, stack: AsyncExitStack
+) -> None:
+    queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
+    calls: list[str] = []
+
+    async def nix_logic() -> None:
+        nix.install()
+
+        @functools.cache
+        def read(path: str) -> str:
+            calls.append(path)
+            return str(nix_path(path).read_text())
+
+        async with nix.watcher(poll_every=timedelta(milliseconds=5)) as needs_refresh:
+            while await needs_refresh():
+                await queue.put({path: read(path) for path in (CONFIG, PACK1)})
+
+    tg = await stack.enter_async_context(asyncio.TaskGroup())
+    nix_task = tg.create_task(nix_logic())
+    stack.callback(nix_task.cancel)
+    assert await asyncio.wait_for(queue.get(), timeout=1) == {
+        CONFIG: "init",
+        PACK1: "init",
+    }
+    calls.clear()
+
+    write_to(Path(PACK1), "updated", datetime.now(UTC))
+
+    assert await asyncio.wait_for(queue.get(), timeout=1) == {
+        CONFIG: "init",
+        PACK1: "updated",
+    }
+    assert calls == [PACK1]
+
+
 def test_cache_outside_a_nix_context_manager_does_not_raise() -> None:
-    """Only a cache of watched data needs a cohort, and reading watched data
-    through a patched Path method raises by itself outside one. Third-party
-    caches, such as wcwidth's while prompt_toolkit redraws, run outside any
-    cohort."""
+    """Only a cache of watched data needs a report calculation, and reading
+    watched data through a patched Path method raises by itself outside one.
+    Third-party caches, such as wcwidth's while prompt_toolkit redraws, run
+    outside any report calculation."""
     nix.install()
 
     @functools.cache
