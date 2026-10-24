@@ -14,9 +14,16 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Collection, Generator
 
-from .cohort import Cohort
-from .patching import PATH_GLOB, is_dir
-from .tracking import cohort_timestamps, nix_cohorts_with_changes
+from .fact import when_safe_to_nix
+from .files import (
+    PATH_GLOB,
+    FileState,
+    GlobState,
+    PathState,
+    file_states,
+    is_dir,
+    nix_changed_file_states,
+)
 
 
 @contextmanager
@@ -96,19 +103,20 @@ class DirectorySearch:
                 return
             candidate = candidate.parent
 
-    def add_cohort(self, cohort: Cohort) -> None:
-        for path in cohort.paths:
-            self.add_parent(path)
-        for glob in cohort.globs:
-            self.add_parent(glob.base_path)
-            for f in PATH_GLOB(glob.base_path, "**/*"):
-                self.add(f)
+    def add_file_state(self, state: FileState) -> None:
+        match state:
+            case PathState(path=path):
+                self.add_parent(path)
+            case GlobState(glob=glob):
+                self.add_parent(glob.base_path)
+                for f in PATH_GLOB(glob.base_path, "**/*"):
+                    self.add(f)
 
 
 def directories_to_watch() -> set[Path]:
     search = DirectorySearch()
-    for cohort in list(cohort_timestamps):
-        search.add_cohort(cohort)
+    for state in list(file_states.values()):
+        search.add_file_state(state)
     return search.directories
 
 
@@ -134,7 +142,7 @@ async def watch_for_changes(fd: int, latency: timedelta) -> None:
             await await_data(event_loop, fd)
 
         await discard_all_data(event_loop, fd, latency_seconds)
-        nix_cohorts_with_changes()
+        when_safe_to_nix(nix_changed_file_states)
 
 
 async def await_changes_and_nix(
