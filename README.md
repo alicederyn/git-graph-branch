@@ -54,6 +54,8 @@ If a branch's remote branch has an open pull request on GitHub, an icon shows th
 
 This needs a token in an environment variable named after the first part of the GitHub domain: `GITHUB_TOKEN` for github.com, or `EXAMPLE_TOKEN` for example.com. git-graph-branch uses the `http.proxy` and `http.sslcainfo` settings from your git config.
 
+In watch mode, the graph shows before the status loads. Until then, 🔌 shows on each branch that has a GitHub remote. When the status loads, the status icon replaces 🔌, or nothing does if the branch has no open pull request. Without `--watch`, git-graph-branch waits for the status before it shows the graph.
+
 In watch mode, the status is checked every few seconds just after you push, and less often after that. In tmux, git-graph-branch does not check while its window is not visible. While it runs, it keeps a tmux session named `_git-graph-branch-<pid>`.
 
 ### Sample output
