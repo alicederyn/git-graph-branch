@@ -40,6 +40,16 @@ def parse_args(args: Sequence[str] | None, *, is_tty: bool) -> Config:
     p.add_argument(
         "--no-remote-icons", action="store_false", dest="remote_icons", help=SUPPRESS
     )
+    p.add_argument(
+        "--pr-icons",
+        action="store_true",
+        dest="pr_icons",
+        default=defaults.pr_icons,
+        help="Display PR check status icon; defaults to true if the output is a TTY",
+    )
+    p.add_argument(
+        "--no-pr-icons", action="store_false", dest="pr_icons", help=SUPPRESS
+    )
     p.add_argument("--pdb", action="store_true", dest="pdb", help=SUPPRESS)
     if is_tty:
         watch = p.add_argument_group("watch options")
@@ -95,7 +105,7 @@ async def graph_branches(config: Config) -> None:
             watcher(timedelta(seconds=config.poll_every)) if config.watch else once()
         ) as needs_refresh:
             while await needs_refresh():
-                show(graph_frame(config))
+                show(await graph_frame(config))
 
     show_ui = show_watching if config.watch else show_once
     await show_ui(config, refresh)
