@@ -38,7 +38,7 @@ package of GraphQL Tools.
 The loader is the only code that sends requests to GitHub, so it is also the
 place for limits on the request rate
 ([ADR 5](0005-adaptive-polling-for-pr-check-status.md),
-[ADR 6](0006-no-updates-without-focus.md)).
+[ADR 6](0006-no-updates-while-the-window-is-hidden.md)).
 
 ## Open questions
 
