@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 
 from ..git.branch import Branch, RemoteBranch
-from .loader import Result, query
+from .loader import Pending, Result, query
 from .remote import endpoint, remote_repository
 
 
@@ -14,6 +14,7 @@ class CheckStatus(Enum):
 
     FAILED = "❌"
     UNKNOWN = "⚠️"
+    LOADING = "🔌"
     PENDING = "⌛"
     PASSED = "✅"
 
@@ -78,7 +79,9 @@ def pr_rollup_state(data: dict[str, Any]) -> str | None:
     )
 
 
-def check_status(result: Result) -> CheckStatus | None:
+def check_status(result: Result | Pending) -> CheckStatus | None:
+    if result is Pending.PENDING:
+        return CheckStatus.LOADING
     if isinstance(result, Exception):
         return CheckStatus.UNKNOWN
     state = pr_rollup_state(result)
@@ -102,7 +105,9 @@ def poll_interval(result: Result, age: float) -> float:
     return SLOW_INTERVAL
 
 
-async def remote_branch_check_status(remote: RemoteBranch) -> CheckStatus | None:
+async def remote_branch_check_status(
+    remote: RemoteBranch, *, wait: bool
+) -> CheckStatus | None:
     repository = remote_repository(remote.remote)
     if repository is None:
         return None
@@ -120,6 +125,7 @@ async def remote_branch_check_status(remote: RemoteBranch) -> CheckStatus | None
         poll_interval,
         # A push from this machine updates the remote-tracking ref, so load again
         version=remote.commit.hash,
+        wait=wait,
     )
     return check_status(result)
 
@@ -130,10 +136,15 @@ def combine(statuses: list[CheckStatus | None]) -> CheckStatus | None:
     return min(known, key=order.index) if known else None
 
 
-async def pr_check_status(branch: Branch) -> CheckStatus | None:
-    """The combined check status of the open PRs of the branch's remote branches."""
+async def pr_check_status(branch: Branch, *, wait: bool) -> CheckStatus | None:
+    """The combined check status of the open PRs of the branch's remote branches.
+
+    If wait is false, a status that has not loaded is LOADING.
+    """
     remotes = {
         r for r in (branch.upstream, branch.downstream) if isinstance(r, RemoteBranch)
     }
-    statuses = await asyncio.gather(*(remote_branch_check_status(r) for r in remotes))
+    statuses = await asyncio.gather(
+        *(remote_branch_check_status(r, wait=wait) for r in remotes)
+    )
     return combine(statuses)
