@@ -139,3 +139,20 @@ async def test_worktree_branch_indicator(
     assert err == ""
 
     check_call(["git", "worktree", "remove", f"{tmp_path}/wt"])
+
+
+@pytest.mark.usefixtures("repo")
+async def test_adjacent_icons_have_no_space_between_them(
+    capsys: pytest.CaptureFixture[str], tmp_path: str
+) -> None:
+    config_setup()
+    commit = git_test_commit()
+    check_call(["git", "branch", "feature"])
+    git_remote_repo("origin", feature=commit)
+    check_call(["git", "worktree", "add", f"{tmp_path}/wt", "feature"])
+
+    await amain(["--remote-icons"])
+
+    out, err = capsys.readouterr()
+    assert "feature 🌲🔷" in out
+    assert err == ""

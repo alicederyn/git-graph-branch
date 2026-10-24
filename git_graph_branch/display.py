@@ -49,8 +49,8 @@ class SyncStatus(Enum):
 
 SYNC_STATUS_ICON = {
     SyncStatus.NO_REMOTE: "",
-    SyncStatus.OUT_OF_SYNC: " 🔶",
-    SyncStatus.IN_SYNC: " 🔷",
+    SyncStatus.OUT_OF_SYNC: "🔶",
+    SyncStatus.IN_SYNC: "🔷",
 }
 
 
@@ -104,14 +104,15 @@ def branch_fragments(
     check_status: CheckStatus | None,
 ) -> StyleAndTextTuples:
     fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
+    icons = []
     if b.name in worktree_branches:
-        fragments.append(("", " 🌲"))
+        icons.append("🌲")
     if config.remote_icons:
-        icon = SYNC_STATUS_ICON[remote_sync_status(b)]
-        if icon:
-            fragments.append(("", icon))
+        icons.append(SYNC_STATUS_ICON[remote_sync_status(b)])
     if check_status:
-        fragments.append(("", f" {check_status.value}"))
+        icons.append(check_status.value)
+    if any(icons):
+        fragments.append(("", " " + "".join(icons)))
     unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
         fragments.append(("class:unmerged", f" [{unmerged} unmerged]"))
