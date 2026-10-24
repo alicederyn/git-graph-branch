@@ -35,12 +35,14 @@ SLOW_INTERVAL = 300.0
 PR_CHECKS_QUERY = """
 query ($owner: String!, $name: String!, $ref: String!) {
   repository(owner: $owner, name: $name) {
-    defaultBranchRef {
-      target { ... on Commit { statusCheckRollup { state } } }
-    }
     ref(qualifiedName: $ref) {
       associatedPullRequests(states: OPEN, first: 1) {
         nodes {
+          baseRepository {
+            defaultBranchRef {
+              target { ... on Commit { statusCheckRollup { state } } }
+            }
+          }
           commits(last: 1) {
             nodes { commit { statusCheckRollup { state } } }
           }
@@ -64,9 +66,18 @@ def get(data: Any, *path: str | int) -> Any:
     return data
 
 
-def repository_has_checks(data: dict[str, Any]) -> bool:
+def base_repository_has_checks(data: dict[str, Any]) -> bool:
+    """Whether the default branch of the PR's base repository has checks.
+
+    Not the repository of the branch: GitHub keeps checks per repository, and CI
+    on a fork usually does not run, even on the same commit.
+    """
     return (
-        get(data, "repository", "defaultBranchRef", "target", "statusCheckRollup")
+        get(
+            data,
+            *("repository", "ref", "associatedPullRequests", "nodes", 0),
+            *("baseRepository", "defaultBranchRef", "target", "statusCheckRollup"),
+        )
         is not None
     )
 
@@ -91,12 +102,12 @@ def check_status(result: Result | Pending) -> CheckStatus | None:
 def poll_interval(result: Result, age: float) -> float:
     """Poll fast just after a push from this machine, when CI is likely to start.
 
-    In a repository with no checks on the default branch, poll slowly, as CI may
-    never start.
+    If the PR's base repository has no checks on its default branch, or there is
+    no PR, poll slowly, as CI may never start.
     """
     if isinstance(result, Exception):
         return MEDIUM_INTERVAL
-    if not repository_has_checks(result):
+    if not base_repository_has_checks(result):
         return SLOW_INTERVAL
     if age < FAST_PERIOD:
         return FAST_INTERVAL
