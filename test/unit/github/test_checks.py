@@ -14,19 +14,25 @@ from git_graph_branch.github.checks import (
 from git_graph_branch.github.loader import Pending
 
 
-def response(pr_state: str | None, *, repo_has_checks: bool = True) -> dict[str, Any]:
-    default_rollup = {"state": "SUCCESS"} if repo_has_checks else None
+def response(pr_state: str | None, *, base_has_checks: bool = True) -> dict[str, Any]:
+    """A response for a branch on a fork, whose default branch has no checks."""
+    base_rollup = {"state": "SUCCESS"} if base_has_checks else None
     pr_rollup = {"state": pr_state} if pr_state else None
     return {
         "repository": {
-            "defaultBranchRef": {"target": {"statusCheckRollup": default_rollup}},
+            "defaultBranchRef": {"target": {"statusCheckRollup": None}},
             "ref": {
                 "associatedPullRequests": {
                     "nodes": [
                         {
+                            "baseRepository": {
+                                "defaultBranchRef": {
+                                    "target": {"statusCheckRollup": base_rollup}
+                                }
+                            },
                             "commits": {
                                 "nodes": [{"commit": {"statusCheckRollup": pr_rollup}}]
-                            }
+                            },
                         }
                     ]
                 }
@@ -36,10 +42,7 @@ def response(pr_state: str | None, *, repo_has_checks: bool = True) -> dict[str,
 
 
 NO_PR: dict[str, Any] = {
-    "repository": {
-        "defaultBranchRef": {"target": {"statusCheckRollup": {"state": "SUCCESS"}}},
-        "ref": {"associatedPullRequests": {"nodes": []}},
-    }
+    "repository": {"ref": {"associatedPullRequests": {"nodes": []}}}
 }
 
 
@@ -101,7 +104,7 @@ def test_combine(
         (response("SUCCESS"), 600, SLOW_INTERVAL),
         (response("PENDING"), 600, MEDIUM_INTERVAL),
         (NO_PR, 600, SLOW_INTERVAL),
-        (response(None, repo_has_checks=False), 0, SLOW_INTERVAL),
+        (response(None, base_has_checks=False), 0, SLOW_INTERVAL),
         (TimeoutError(), 0, MEDIUM_INTERVAL),
     ],
     ids=[
@@ -109,7 +112,7 @@ def test_combine(
         "final",
         "pending",
         "no PR",
-        "repository has no checks",
+        "base repository has no checks",
         "failed load",
     ],
 )
