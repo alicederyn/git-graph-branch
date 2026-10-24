@@ -24,8 +24,9 @@ GitHub calculates points for each call, so the costs of merged queries add
 up, but the minimum of one point is paid once for each request. GitHub does not
 document a limit on aliases or on root fields. A call can request at most
 500,000 nodes. A call that takes more than 10 seconds is ended, and GitHub
-deducts extra points for the next hour. GitHub does not document support for
-sending several operations as a JSON array in one request.
+deducts extra points for the next hour. github.com and GitHub Enterprise
+Server 3.17 reject a JSON array of operations in one request, with 400 "Body
+should be a JSON object".
 
 Components must not need to know about the queries of other components. To merge
 two queries, the loader must give each query's variables and fragments new
@@ -79,7 +80,7 @@ one shared query.
 
 **Array batching.** gql can collect requests from a time window and send them
 as a JSON array of operations in one request. We rejected it because GitHub
-does not document support for array requests.
+rejects array requests.
 
 **A query DSL.** The DSL of gql can combine aliased root fields that were built
 separately. We rejected it because it matches variables by name, so two
