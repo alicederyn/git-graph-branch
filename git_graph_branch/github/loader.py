@@ -2,7 +2,8 @@
 
 Queries that start in the same event-loop tick are merged into one request. Each
 result is a Fact. In watch mode, a background task polls each result again, at the
-interval its poll policy gives, and nixes the result when it changes.
+interval its poll policy gives, and nixes the result when it changes. A query that
+does not wait gets Pending until its first result arrives, which nixes it.
 
 The background task cannot read the filesystem (nix forbids it), so everything that
 comes from git config or the environment is in the Endpoint.
@@ -18,8 +19,9 @@ from collections.abc import Callable, Hashable, Mapping, Sequence
 from contextlib import suppress
 from contextvars import Context
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from math import inf
-from typing import Any
+from typing import Any, Literal, overload
 
 import aiohttp
 import truststore
@@ -37,6 +39,10 @@ type Result = dict[str, Any] | Exception
 type PollPolicy = Callable[[Result, float], float]
 """Seconds until the next poll, from the latest result and the seconds since the
 query was first loaded."""
+
+
+class Pending(Enum):
+    PENDING = auto()
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,7 @@ class Entry:
     poll_policy: PollPolicy
     latest: Result | None = None
     next_poll_at: float = inf
+    served_pending: bool = False
 
 
 @dataclass(eq=False)
@@ -83,6 +90,7 @@ endpoints: dict[Endpoint, EndpointState] = {}
 dispatch_tasks: set[asyncio.Task[None]] = set()
 
 
+@overload
 async def query(
     endpoint: Endpoint,
     document: str,
@@ -90,11 +98,38 @@ async def query(
     poll_policy: PollPolicy,
     *,
     version: Hashable = None,
-) -> Result:
+    wait: Literal[True] = True,
+) -> Result: ...
+
+
+@overload
+async def query(
+    endpoint: Endpoint,
+    document: str,
+    variables: Mapping[str, Any],
+    poll_policy: PollPolicy,
+    *,
+    version: Hashable = None,
+    wait: bool,
+) -> Result | Pending: ...
+
+
+async def query(
+    endpoint: Endpoint,
+    document: str,
+    variables: Mapping[str, Any],
+    poll_policy: PollPolicy,
+    *,
+    version: Hashable = None,
+    wait: bool = True,
+) -> Result | Pending:
     """Load the result of a GraphQL query, as data or as an exception.
 
     Must be called in a nix report calculation. A different version gives a
     different result, even if the query is the same.
+
+    If wait is false, and the result has not loaded, return Pending; the query
+    is still sent, and its result nixes the calculation when it arrives.
     """
     key = Key(endpoint, document, json.dumps(variables, sort_keys=True), version)
     entry = entries.get(key)
@@ -102,6 +137,9 @@ async def query(
         entry = add_entry(key, Query(document, variables), poll_policy, entry)
     entry.poll_policy = poll_policy
     entry.fact.record_use()
+    if not wait and not entry.result.done():
+        entry.served_pending = True
+        return Pending.PENDING
     return await asyncio.shield(entry.result)
 
 
@@ -230,6 +268,9 @@ def deliver(state: EndpointState, entry: Entry, result: Result) -> None:
     if not entry.result.done():
         entry.latest = result
         entry.result.set_result(result)
+        if entry.served_pending:
+            when_safe_to_nix(replace_result, entry, result)
+            return
     elif not same(result, entry.latest):
         when_safe_to_nix(replace_result, entry, result)
         return

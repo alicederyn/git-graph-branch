@@ -124,7 +124,9 @@ async def check_statuses(
 ) -> list[CheckStatus | None]:
     if not config.pr_icons:
         return [None] * len(branches)
-    return await asyncio.gather(*(pr_check_status(b) for b in branches))
+    return await asyncio.gather(
+        *(pr_check_status(b, wait=not config.watch) for b in branches)
+    )
 
 
 async def graph_frame(config: Config) -> Frame:

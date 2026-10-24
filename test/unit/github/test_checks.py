@@ -11,6 +11,7 @@ from git_graph_branch.github.checks import (
     combine,
     poll_interval,
 )
+from git_graph_branch.github.loader import Pending
 
 
 def response(pr_state: str | None, *, repo_has_checks: bool = True) -> dict[str, Any]:
@@ -69,6 +70,10 @@ def test_failed_load_is_unknown() -> None:
     assert check_status(TimeoutError()) == CheckStatus.UNKNOWN
 
 
+def test_pending_load_is_loading() -> None:
+    assert check_status(Pending.PENDING) == CheckStatus.LOADING
+
+
 @pytest.mark.parametrize(
     "statuses, combined",
     [
@@ -76,6 +81,8 @@ def test_failed_load_is_unknown() -> None:
         ([CheckStatus.FAILED, CheckStatus.UNKNOWN], CheckStatus.FAILED),
         ([CheckStatus.PENDING, CheckStatus.UNKNOWN], CheckStatus.UNKNOWN),
         ([CheckStatus.PASSED, CheckStatus.PENDING], CheckStatus.PENDING),
+        ([CheckStatus.FAILED, CheckStatus.LOADING], CheckStatus.FAILED),
+        ([CheckStatus.PENDING, CheckStatus.LOADING], CheckStatus.LOADING),
         ([None, CheckStatus.PASSED], CheckStatus.PASSED),
         ([None, None], None),
         ([], None),

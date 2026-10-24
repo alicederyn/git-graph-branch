@@ -8,7 +8,7 @@ import pytest
 
 from git_graph_branch import tmux
 from git_graph_branch.github import loader
-from git_graph_branch.github.loader import Endpoint, query, ssl_context
+from git_graph_branch.github.loader import Endpoint, Pending, query, ssl_context
 from git_graph_branch.nix.fact import report_calculation, session
 
 ENDPOINT = Endpoint("https://example.com/graphql", "token", None, None)
@@ -155,6 +155,42 @@ async def test_poll_nixes_the_result_only_when_it_changes(
         result = await query(ENDPOINT, ECHO, {"n": 0}, never_poll)
     assert result == {"echo": 2}
     assert post.call_count == 3
+
+
+async def test_query_without_wait_gives_pending_and_still_sends(
+    watching: None, post: AsyncMock
+) -> None:
+    with report_calculation():
+        result = await query(ENDPOINT, ECHO, {"n": 0}, never_poll, wait=False)
+    await asyncio.sleep(0.05)
+
+    assert result is Pending.PENDING
+    assert post.call_count == 1
+
+
+async def test_first_result_nixes_a_pending_query(
+    watching: None, post: AsyncMock
+) -> None:
+    with report_calculation() as report:
+        await query(ENDPOINT, ECHO, {"n": 0}, never_poll, wait=False)
+    nixed = asyncio.Event()
+    report.on_nix(nixed.set)
+
+    await asyncio.wait_for(nixed.wait(), timeout=5)
+    with report_calculation():
+        result = await query(ENDPOINT, ECHO, {"n": 0}, never_poll, wait=False)
+    assert result == {"echo": 0}
+    assert post.call_count == 1
+
+
+async def test_query_without_wait_gives_a_loaded_result(
+    watching: None, post: AsyncMock
+) -> None:
+    with report_calculation():
+        await query(ENDPOINT, ECHO, {"n": 0}, never_poll)
+        result = await query(ENDPOINT, ECHO, {"n": 0}, never_poll, wait=False)
+
+    assert result == {"echo": 0}
 
 
 async def test_poll_waits_until_the_window_is_visible(
