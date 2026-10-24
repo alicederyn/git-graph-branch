@@ -46,6 +46,13 @@ def clear_functools_caches() -> Iterable[None]:
             cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def tmux_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep watch mode away from the tmux server that runs the tests."""
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+
+
 def assert_git_version(minimum_version: str) -> None:
     git_version = version.parse(
         check_output(["git", "--version"], encoding="ascii").removeprefix(

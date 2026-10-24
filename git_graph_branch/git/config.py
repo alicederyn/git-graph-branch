@@ -3,6 +3,7 @@ from functools import cache
 from os import environ
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import SplitResult, urlsplit
 
 from .path import git_common_state
 
@@ -92,3 +93,51 @@ def config() -> Config:
 
 def remote_push_default() -> str | None:
     return config().get("remote", {}).get("pushdefault")
+
+
+def remote_url(remote: str) -> str | None:
+    return config().get(("remote", remote), {}).get("url")
+
+
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def url_matches(pattern: SplitResult, url: SplitResult) -> bool:
+    """Whether a `[http "<url>"]` section applies to url.
+
+    Follows git-config's rules: the scheme, host, port and user must match, a `*`
+    matches one host label, and the path must match a whole number of segments.
+    """
+    if pattern.scheme != url.scheme:
+        return False
+    if pattern.username and pattern.username != url.username:
+        return False
+    pattern_labels = (pattern.hostname or "").split(".")
+    labels = (url.hostname or "").split(".")
+    if len(pattern_labels) != len(labels) or any(
+        p not in ("*", label) for p, label in zip(pattern_labels, labels)
+    ):
+        return False
+    default_port = DEFAULT_PORTS.get(url.scheme)
+    if (pattern.port or default_port) != (url.port or default_port):
+        return False
+    path = pattern.path.rstrip("/")
+    return not path or url.path == path or url.path.startswith(path + "/")
+
+
+def http_config(url: str) -> dict[str, str]:
+    """The http.* settings that git uses for url, without the `http.` prefix.
+
+    Keys are lowercase. A more specific `[http "<url>"]` section wins.
+    """
+    target = urlsplit(url)
+    sections: list[tuple[int, dict[str, str]]] = [(-1, config().get("http", {}))]
+    for key, values in config().items():
+        if isinstance(key, tuple) and key[0] == "http":
+            pattern = urlsplit(key[1])
+            if url_matches(pattern, target):
+                sections.append((len(pattern.path.rstrip("/")), values))
+    result: dict[str, str] = {}
+    for _, values in sorted(sections, key=lambda section: section[0]):
+        result.update((name.lower(), value) for name, value in values.items())
+    return result

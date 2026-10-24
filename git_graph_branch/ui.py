@@ -21,6 +21,7 @@ from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.styles import DummyStyle, Style
 
+from . import tmux
 from .display import Config, Frame
 from .viewport import Viewport
 
@@ -220,6 +221,6 @@ async def show_watching(config: Config, refresh: Refresh) -> None:
         app.invalidate()
 
     # If refresh fails, the app is cancelled, so it restores the terminal
-    async with background_task(refresh(show)):
+    async with tmux.watch_window_visibility(), background_task(refresh(show)):
         # SIGINT and SIGTERM stay with cli.handle_signals
         await app.run_async(handle_sigint=False)

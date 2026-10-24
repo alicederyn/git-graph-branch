@@ -72,3 +72,26 @@ def test_renamed_local_upstream(worktree: Path) -> None:
     b = Branch("b")
 
     assert b.upstream is None
+
+
+def test_downstream_is_branch_on_pushdefault_remote(worktree: Path) -> None:
+    git_test_commit()
+    check_call(["git", "checkout", "-t", "-b", "feature"])
+    check_call(["git", "config", "remote.pushdefault", "origin"])
+    check_call(["git", "update-ref", "refs/remotes/origin/feature", "feature"])
+    b = Branch("feature")
+    assert b.downstream == RemoteBranch("origin", "feature")
+
+
+def test_no_downstream_without_pushdefault(worktree: Path) -> None:
+    git_test_commit()
+    check_call(["git", "update-ref", "refs/remotes/origin/main", "main"])
+    b = Branch("main")
+    assert b.downstream is None
+
+
+def test_no_downstream_if_remote_branch_missing(worktree: Path) -> None:
+    git_test_commit()
+    check_call(["git", "config", "remote.pushdefault", "origin"])
+    b = Branch("main")
+    assert b.downstream is None

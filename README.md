@@ -21,7 +21,7 @@ $ git graph-branch
 ### Help docs
 
 ```text
-usage: git-graph-branch [-h] [--color] [--remote-icons] [-w] [--poll-every SECS]
+usage: git-graph-branch [-h] [--color] [--remote-icons] [--pr-icons] [-w] [--poll-every SECS]
 
 Pretty-print branch metadata
 
@@ -29,6 +29,7 @@ options:
   -h, --help         show this help message and exit
   --color            Display colorized output; defaults to true if the output is a TTY and NO_COLOR is not set
   --remote-icons     Display remote status icon; defaults to true if the output is a TTY
+  --pr-icons         Display PR check status icon; defaults to true if the output is a TTY
 
 watch options:
   -w, --watch        Watch for changes and keep the graph updated
@@ -46,6 +47,14 @@ The graph takes over the terminal and updates whenever your branches or commits 
 To see the rest of a long graph, scroll with the mouse wheel, the Up/Down arrow keys, Page Up/Page Down, or Home/End. If you scroll your current branch out of view, the graph stays where you left it. Once your branch is back in view, the graph follows it again.
 
 A plain drag does not select text in watch mode. In most terminals, hold Shift while you drag. In iTerm2, hold Option instead.
+
+### PR check status
+
+If a branch's remote branch has an open pull request on GitHub, an icon shows the status of its checks: ❌ if any check failed, ⌛ if none failed and some are pending, ✅ if all passed, and ⚠️ if the status could not be loaded.
+
+This needs a token in an environment variable named after the first part of the GitHub domain: `GITHUB_TOKEN` for github.com, or `EXAMPLE_TOKEN` for example.com. git-graph-branch uses the `http.proxy` and `http.sslcainfo` settings from your git config.
+
+In watch mode, the status is checked every few seconds just after you push, and less often after that. In tmux, git-graph-branch does not check while its window is not visible. While it runs, it keeps a tmux session named `_git-graph-branch-<pid>`.
 
 ### Sample output
 
