@@ -4,6 +4,7 @@ from types import ModuleType
 import pytest
 
 import git_graph_branch.dag as dag
+import git_graph_branch.github.remote as github_remote
 
 
 def collect_doctests(*modules: ModuleType) -> list[object]:
@@ -24,7 +25,7 @@ def run_doctest(test: doctest.DocTest) -> doctest.TestResults:
     return runner.summarize(verbose=False)
 
 
-@pytest.mark.parametrize("test", collect_doctests(dag))
+@pytest.mark.parametrize("test", collect_doctests(dag, github_remote))
 def test_docstrings(test: doctest.DocTest) -> None:
     result = run_doctest(test)
     if result.failed:

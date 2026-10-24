@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Iterator, TypeGuard, TypeVar, overload
 
 from .commit import Commit
-from .config import config
+from .config import config, remote_push_default
 from .path import git_common_state, git_working_state
 from .reflog import ReflogEntry, iter_reflog, reflog_mtime
 
@@ -151,6 +151,15 @@ class Branch(Ref):
             if remote == "."
             else RemoteBranch(remote, upstream_name)
         )
+        return b if b.exists() else None
+
+    @property
+    def downstream(self) -> RemoteBranch | None:
+        """The branch of the same name on the pushdefault remote, if it exists."""
+        push_remote = remote_push_default()
+        if not push_remote:
+            return None
+        b = RemoteBranch(push_remote, self.name)
         return b if b.exists() else None
 
 

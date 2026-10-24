@@ -1,4 +1,5 @@
 # coding=utf-8
+import asyncio
 import os
 from argparse import Namespace
 from enum import Enum
@@ -10,13 +11,14 @@ from .dag import NodeArt, layout
 from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
-from .git.config import remote_push_default
+from .github import CheckStatus, pr_check_status
 
 
 class Config(Namespace):
     color: bool
     is_tty: bool
     remote_icons: bool
+    pr_icons: bool
     watch: bool = False
     poll_every: float = 1.0
 
@@ -24,7 +26,11 @@ class Config(Namespace):
         # https://no-color.org: NO_COLOR, if set and not empty, turns off
         # colour by default, but an explicit --color still wins
         no_color = bool(os.environ.get("NO_COLOR"))
-        defaults = {"color": is_tty and not no_color, "remote_icons": is_tty}
+        defaults = {
+            "color": is_tty and not no_color,
+            "remote_icons": is_tty,
+            "pr_icons": is_tty,
+        }
         super().__init__(**(defaults | kwargs), is_tty=is_tty)
 
 
@@ -64,13 +70,11 @@ def remote_sync_status(b: Branch) -> SyncStatus:
         has_remote = True
         if b.upstream.commit.commit_date > b.commit.commit_date:
             return SyncStatus.OUT_OF_SYNC
-    push_remote = remote_push_default()
-    if push_remote:
-        downstream = RemoteBranch(push_remote, b.name)
-        if downstream.exists():
-            has_remote = True
-            if downstream.commit != b.commit:
-                return SyncStatus.OUT_OF_SYNC
+    downstream = b.downstream
+    if downstream:
+        has_remote = True
+        if downstream.commit != b.commit:
+            return SyncStatus.OUT_OF_SYNC
     return SyncStatus.IN_SYNC if has_remote else SyncStatus.NO_REMOTE
 
 
@@ -97,6 +101,7 @@ def branch_fragments(
     config: Config,
     parents: Iterable[Branch],
     worktree_branches: set[str],
+    check_status: CheckStatus | None,
 ) -> StyleAndTextTuples:
     fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
     if b.name in worktree_branches:
@@ -105,25 +110,36 @@ def branch_fragments(
         icon = SYNC_STATUS_ICON[remote_sync_status(b)]
         if icon:
             fragments.append(("", icon))
+    if check_status:
+        fragments.append(("", f" {check_status.value}"))
     unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
         fragments.append(("class:unmerged", f" [{unmerged} unmerged]"))
     return fragments
 
 
-def graph_frame(config: Config) -> Frame:
+async def check_statuses(
+    config: Config, branches: list[Branch]
+) -> list[CheckStatus | None]:
+    if not config.pr_icons:
+        return [None] * len(branches)
+    return await asyncio.gather(*(pr_check_status(b) for b in branches))
+
+
+async def graph_frame(config: Config) -> Frame:
     """Render every branch as one row of styled fragments, and find HEAD's row.
 
     This reads the filesystem, so it must be called inside a nix report
     calculation. The frame it returns is a snapshot, so redrawing does not touch
-    the filesystem.
+    the filesystem or the network.
     """
     dag = compute_branch_dag(list(branches()))
     art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
     wt_branches = worktree_branches()
+    statuses = await check_statuses(config, [b for _, b in art_and_branches])
     rows = [
-        branch_fragments(art, b, config, dag.parents(b), wt_branches)
-        for art, b in art_and_branches
+        branch_fragments(art, b, config, dag.parents(b), wt_branches, status)
+        for (art, b), status in zip(art_and_branches, statuses)
     ]
     head = next((i for i, (_, b) in enumerate(art_and_branches) if b.is_head), None)
     return Frame(rows, head)
