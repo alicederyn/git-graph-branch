@@ -21,7 +21,7 @@ class ReviewStatus(Enum):
     COMMENTED = "💬"
     APPROVED = "👍"
     OPEN = "📭"
-    DRAFT = "📝"
+    DRAFT = "🌱"
 
 
 POLL_INTERVAL = 300.0
