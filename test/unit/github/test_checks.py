@@ -115,7 +115,7 @@ def test_unknown_rollup_state_is_a_failure() -> None:
 
 
 def test_pending_load_is_loading() -> None:
-    assert outcome(Pending.PENDING) == Outcome(CheckStatus.LOADING)
+    assert outcome(Pending.PENDING) == Outcome(loading=True)
 
 
 @pytest.mark.parametrize(
