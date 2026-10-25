@@ -1,10 +1,13 @@
 import asyncio
 import ssl
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import aiohttp
 import pytest
+from multidict import CIMultiDict
 
 from git_graph_branch import tmux
 from git_graph_branch.github import loader
@@ -264,6 +267,48 @@ async def test_poll_waits_until_the_window_is_visible(
     assert post.call_count == 1
     visible.set()
     await asyncio.sleep(0.05)
+    assert post.call_count > 1
+
+
+def http_error(status: int, headers: dict[str, str]) -> aiohttp.ClientResponseError:
+    return aiohttp.ClientResponseError(
+        Mock(), (), status=status, headers=CIMultiDict(headers)
+    )
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"retry-after": "60"},
+        {
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": str(int(time.time()) + 60),
+        },
+        {},
+    ],
+    ids=["retry-after", "hourly limit used up", "no headers"],
+)
+@pytest.mark.parametrize("status", [403, 429])
+async def test_secondary_rate_limit_stops_polls(
+    watching: None, post: AsyncMock, status: int, headers: dict[str, str]
+) -> None:
+    post.side_effect = http_error(status, headers)
+    with report_calculation():
+        result = await load(ENDPOINT, echo, (0,), poll_at_once)
+    await asyncio.sleep(0.05)
+
+    assert isinstance(result.error, aiohttp.ClientResponseError)
+    assert post.call_count == 1
+
+
+async def test_server_error_does_not_stop_polls(
+    watching: None, post: AsyncMock
+) -> None:
+    post.side_effect = http_error(500, {})
+    with report_calculation():
+        await load(ENDPOINT, echo, (0,), poll_at_once)
+    await asyncio.sleep(0.05)
+
     assert post.call_count > 1
 
 
