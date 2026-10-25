@@ -1,6 +1,6 @@
 [project]
 name = "git-graph-branch"
-version = "0.9.1"
+version = "0.9.2"
 description = "Terminal tool to graph git branches and branch metadata"
 authors = [
     { name = "Alice Purcell", email = "Alice.Purcell.39@gmail.com" },
