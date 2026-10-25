@@ -8,8 +8,10 @@ Proposed
 
 ## Decision
 
-We will show the check status of each branch's pull request as an emoji. In
-`--watch` mode, the GraphQL loader
+We will show the check status of each branch's pull request as an emoji. The
+pull request of a branch is the open pull request of its push target: the branch
+of the same name on the `pushDefault` remote, else the upstream branch if it is
+on a remote. In `--watch` mode, the GraphQL loader
 ([ADR 4](0004-graphql-loader-with-merged-queries.md)) will poll for updates.
 The interval depends on how probable a change is: fast for a few minutes after
 the head of a pull request changes, medium while a check is not final, and slow
@@ -49,10 +51,19 @@ last batch. When `rateLimit.remaining` is low, it uses the slow interval until
 `resetAt`. At a 5 s minimum and about one point per batch, the worst case is
 720 points per hour, which is less than the limit.
 
+A branch can have two remote branches, its upstream branch and its push target,
+and each can have an open pull request. Each icon, and the link that it opens on
+Ctrl-click, must come from one pull request. The push target is the branch that
+GitHub offers to open a pull request for, after a push.
+
 ## Alternatives
 
 **Webhooks through a relay service.** This gives push events. We rejected it
 because we would have to operate a service that GitHub can reach.
+
+**Combine the pull requests of both remote branches.** The icon shows the worst
+status of the two pull requests. We rejected it because the link of an icon
+would then have to choose between two pull requests.
 
 **Fixed-interval polling.** This is simpler. We rejected it because a short
 interval uses too much of the rate limit when nothing changes, and a long
@@ -71,6 +82,9 @@ results for that pull request show late. After that, the normal intervals
 apply.
 
 The intervals are estimates, and we will tune them.
+
+An open pull request on the upstream branch is not shown if the branch has a
+push target.
 
 ## Confidence
 
