@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from math import inf
 from typing import Any
@@ -10,7 +10,7 @@ from typing import Any
 import aiohttp
 
 from ..git.branch import Branch
-from .common import Outcome, get
+from .common import Outcome, error_text, get
 from .loader import Fetch, Pending, Result, load
 from .remote import github_repository, pr_remote_branch
 
@@ -170,8 +170,8 @@ class Reviews:
     """Users with a pending review request."""
     requested_at: tuple[tuple[str, datetime], ...] = ()
     """When each user was asked for a review, oldest first."""
-    unresolved: frozenset[Review] = frozenset()
-    """The reviews that started the unresolved threads."""
+    unresolved: tuple[Review, ...] = ()
+    """The review that started each unresolved thread."""
     threads_cursor: str | None = None
     """Where the next load starts to read threads."""
     threads_before: int = 0
@@ -309,7 +309,7 @@ async def load_pr_reviews(
             for node in events
             if (login := get(node, "requestedReviewer", "login"))
         ),
-        unresolved=frozenset(
+        unresolved=tuple(
             thread_review
             for edge in threads
             if not edge["node"]["isResolved"]
@@ -369,7 +369,7 @@ def is_awaiting_dismissal(reviews: Reviews, current: list[Review]) -> bool:
 
 
 def unresolved_comments(reviews: Reviews) -> list[Review]:
-    """The comment-only reviews with an unresolved thread.
+    """The comment-only review that started each unresolved thread.
 
     A later approval or dismissal from the same reviewer clears the thread, but a
     later comment-only review does not.
@@ -441,15 +441,70 @@ def review_url(reviews: Reviews, status: ReviewStatus | None) -> str | None:
     return url or reviews.pr_url
 
 
+def authors(reviews: list[Review]) -> str:
+    # GitHub shows a deleted user as "ghost"
+    return ", ".join(sorted({r.author or "ghost" for r in reviews}))
+
+
+def age(delta: timedelta) -> str:
+    if delta.days:
+        return f"{delta.days}d"
+    if delta.seconds >= 3600:
+        return f"{delta.seconds // 3600}h"
+    return f"{delta.seconds // 60}m"
+
+
+def awaiting_tooltip(reviews: Reviews, now: datetime) -> str:
+    """Who is asked for a review, and how long the oldest request has waited."""
+    if not reviews.requested:
+        return "No reviewers requested"
+    text = f"Awaiting {', '.join(sorted(reviews.requested))}"
+    # A user asked again has a later event, which replaces the earlier one
+    asked = [
+        at
+        for user, at in dict(reviews.requested_at).items()
+        if user in reviews.requested
+    ]
+    if asked:
+        text += f" ({age(now - min(asked))})"
+    return text
+
+
+def review_tooltip(reviews: Reviews, status: ReviewStatus, now: datetime) -> str:
+    current = current_reviews(reviews)
+    match status:
+        case ReviewStatus.APPROVED:
+            approvals = [r for r in current if r.state == "APPROVED"]
+            return f"Approved by {authors(approvals)}" if approvals else "Approved"
+        case ReviewStatus.CHANGES_REQUESTED:
+            blockers = [r for r in current if r.state == "CHANGES_REQUESTED"]
+            return f"Changes requested by {authors(blockers)}"
+        case ReviewStatus.AWAITING_DISMISSAL:
+            blockers = [
+                r for r in reviews.opinionated if r.state == "CHANGES_REQUESTED"
+            ]
+            return f"Undismissed blocking review by {authors(blockers)}"
+        case ReviewStatus.COMMENTED:
+            count = len(unresolved_comments(reviews))
+            return f"{count} unresolved thread{'' if count == 1 else 's'}"
+        case ReviewStatus.OPEN:
+            return awaiting_tooltip(reviews, now)
+
+
 def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
     if result is Pending.PENDING:
         return Outcome(loading=True)
-    failed = result.error is not None
+    error = error_text(result.error)
     if result.state is None:
-        return Outcome(failed=failed)
+        return Outcome(error=error)
     status = review_status(result.state)
     url = review_url(result.state, status) if status else None
-    return Outcome(status, failed, url, has_pr=result.state.pr_id is not None)
+    tooltip = (
+        review_tooltip(result.state, status, datetime.now(UTC)) if status else None
+    )
+    return Outcome(
+        status, error, url, has_pr=result.state.pr_id is not None, tooltip=tooltip
+    )
 
 
 def poll_interval(result: Result[Reviews], age: float) -> float:

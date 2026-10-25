@@ -103,15 +103,17 @@ def test_pr_with_no_checks_has_no_status() -> None:
 def test_failed_load_keeps_the_last_status() -> None:
     result = Result(response("SUCCESS"), TimeoutError())
 
-    assert outcome(result) == Outcome(CheckStatus.PASSED, failed=True, has_pr=True)
+    assert outcome(result) == Outcome(CheckStatus.PASSED, "TimeoutError", has_pr=True)
 
 
 def test_first_failed_load_has_no_status() -> None:
-    assert outcome(Result(None, TimeoutError())) == Outcome(failed=True)
+    assert outcome(Result(None, TimeoutError())) == Outcome(error="TimeoutError")
 
 
 def test_unknown_rollup_state_is_a_failure() -> None:
-    assert outcome(Result(response("NEW_STATE"))) == Outcome(failed=True, has_pr=True)
+    assert outcome(Result(response("NEW_STATE"))) == Outcome(
+        error="Unknown check state NEW_STATE", has_pr=True
+    )
 
 
 def test_pending_load_is_loading() -> None:
