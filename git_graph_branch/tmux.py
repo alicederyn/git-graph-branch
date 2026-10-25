@@ -7,7 +7,7 @@ it queries the clients that show this pane's window.
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 
 VIEWERS_FORMAT = "viewers=#{window_active_clients_list}"
@@ -28,8 +28,11 @@ async def wait_until_visible() -> None:
 
 
 @asynccontextmanager
-async def watch_window_visibility() -> AsyncIterator[None]:
-    """Track the visibility of this pane's window while the body runs.
+async def watch_window_visibility(
+    on_hide: Callable[[], None] = lambda: None,
+) -> AsyncIterator[None]:
+    """Track the visibility of this pane's window while the body runs, and call
+    on_hide when a query finds it hidden.
 
     Outside tmux, or if tmux fails, the window counts as visible.
     """
@@ -45,7 +48,7 @@ async def watch_window_visibility() -> AsyncIterator[None]:
     try:
         async with asyncio.TaskGroup() as task_group:
             task = task_group.create_task(
-                track_visibility(tmux_env.split(",")[0], pane, visible)
+                track_visibility(tmux_env.split(",")[0], pane, visible, on_hide)
             )
             try:
                 yield
@@ -62,7 +65,12 @@ def parse_viewers(line: str) -> bool | None:
     return bool(line.removeprefix("viewers="))
 
 
-async def track_visibility(socket: str, pane: str, visible: asyncio.Event) -> None:
+async def track_visibility(
+    socket: str,
+    pane: str,
+    visible: asyncio.Event,
+    on_hide: Callable[[], None] = lambda: None,
+) -> None:
     session = f"_git-graph-branch-{os.getpid()}"
     env = {name: value for name, value in os.environ.items() if name != "TMUX"}
     try:
@@ -93,6 +101,7 @@ async def track_visibility(socket: str, pane: str, visible: asyncio.Event) -> No
                     visible.set()
                 elif viewers is False:
                     visible.clear()
+                    on_hide()
             elif line.startswith(VISIBILITY_NOTIFICATIONS):
                 stdin.write(query)
     finally:

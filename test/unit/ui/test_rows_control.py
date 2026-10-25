@@ -244,3 +244,14 @@ def test_a_tooltip_wraps_between_words_to_fit_the_window() -> None:
     assert padded_tooltip("origin: 2 ahead\nupstream: 1 behind", 12) == (
         " origin: 2 \n ahead \n upstream: \n 1 behind "
     )
+
+
+async def test_hiding_the_tooltip_holds_until_the_pointer_moves() -> None:
+    control = hovering_control(tooltip_frame("tip"))
+    await asyncio.sleep(DELAY * 5)
+
+    control.hide_tooltip()
+    control.create_content(WIDTH, 1)
+    await asyncio.sleep(DELAY * 5)
+
+    assert control.tooltip is None
