@@ -1,22 +1,21 @@
-"""The review status of the open PRs for a branch (ADR 7)."""
+"""The review status of the open PR for a branch (ADR 7)."""
 
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from math import inf
 from typing import Any
 
 import aiohttp
 
-from ..git.branch import Branch, RemoteBranch
-from .common import Outcome, combine_outcomes, get
+from ..git.branch import Branch
+from .common import Outcome, get
 from .loader import Fetch, Pending, Result, load
-from .remote import github_repository
+from .remote import github_repository, pr_remote_branch
 
 
 class ReviewStatus(Enum):
-    """In order of precedence, when the statuses of several PRs combine."""
-
     CHANGES_REQUESTED = "👎"
     AWAITING_DISMISSAL = "🚧"
     COMMENTED = "💬"
@@ -71,7 +70,7 @@ OPINIONATED_REVIEWS = Connection(
 fragment OpinionatedReviews on PullRequest {
   latestOpinionatedReviews(first: $opinionatedFirst, after: $opinionatedAfter) {
     pageInfo { hasNextPage endCursor }
-    nodes { state submittedAt author { login } }
+    nodes { url state submittedAt author { login } }
   }
 }
 """,
@@ -122,7 +121,7 @@ fragment ReviewThreads on PullRequest {
       node {
         isResolved
         comments(first: 1) {
-          nodes { pullRequestReview { state submittedAt author { login } } }
+          nodes { pullRequestReview { url state submittedAt author { login } } }
         }
       }
     }
@@ -139,7 +138,7 @@ query ($owner: String!, $name: String!, $ref: String!, VARIABLES) {
   repository(owner: $owner, name: $name) {
     ref(qualifiedName: $ref) {
       associatedPullRequests(states: OPEN, first: 1) {
-        nodes { id reviewDecision SPREADS }
+        nodes { id url reviewDecision SPREADS }
       }
     }
   }
@@ -156,12 +155,14 @@ class Review:
     author: str | None
     state: str
     submitted_at: datetime | None
+    url: str | None = None
 
 
 @dataclass(frozen=True)
 class Reviews:
     pr_id: str | None
     """None if the branch has no open PR."""
+    pr_url: str | None = None
     decision: str | None = None
     opinionated: tuple[Review, ...] = ()
     """The latest approval or change request of each user."""
@@ -256,7 +257,9 @@ def resolved_prefix(edges: list[dict[str, Any]]) -> int:
 
 
 def review(node: dict[str, Any]) -> Review:
-    return Review(author(node), node["state"], timestamp(node["submittedAt"]))
+    return Review(
+        author(node), node["state"], timestamp(node["submittedAt"]), node["url"]
+    )
 
 
 def first_review(thread: dict[str, Any]) -> Review | None:
@@ -293,6 +296,7 @@ async def load_pr_reviews(
     skipped = resolved_prefix(threads)
     return Reviews(
         pr_id=pr_id,
+        pr_url=pr["url"],
         decision=pr["reviewDecision"],
         opinionated=tuple(review(node) for node in opinionated),
         requested=frozenset(
@@ -364,8 +368,8 @@ def is_awaiting_dismissal(reviews: Reviews, current: list[Review]) -> bool:
     )
 
 
-def has_unresolved_comments(reviews: Reviews) -> bool:
-    """Whether a comment-only review has an unresolved thread.
+def unresolved_comments(reviews: Reviews) -> list[Review]:
+    """The comment-only reviews with an unresolved thread.
 
     A later approval or dismissal from the same reviewer clears the thread, but a
     later comment-only review does not.
@@ -386,39 +390,66 @@ def has_unresolved_comments(reviews: Reviews) -> bool:
             or at > thread_review.submitted_at
         )
 
-    return any(
-        r.state == "COMMENTED"
+    return [
+        r
+        for r in reviews.unresolved
+        if r.state == "COMMENTED"
         and r.author not in reviews.requested
         and not is_cleared(r)
-        for r in reviews.unresolved
-    )
+    ]
+
+
+def current_reviews(reviews: Reviews) -> list[Review]:
+    # A dismissed review has the state DISMISSED
+    return [
+        r
+        for r in reviews.opinionated
+        if r.state != "DISMISSED" and r.author not in reviews.requested
+    ]
 
 
 def review_status(reviews: Reviews) -> ReviewStatus | None:
     if reviews.pr_id is None:
         return None
-    # A dismissed review has the state DISMISSED
-    current = [
-        r
-        for r in reviews.opinionated
-        if r.state != "DISMISSED" and r.author not in reviews.requested
-    ]
+    current = current_reviews(reviews)
     if is_approved(reviews, current):
         return ReviewStatus.APPROVED
     if any(r.state == "CHANGES_REQUESTED" for r in current):
         return ReviewStatus.CHANGES_REQUESTED
     if is_awaiting_dismissal(reviews, current):
         return ReviewStatus.AWAITING_DISMISSAL
-    if has_unresolved_comments(reviews):
+    if unresolved_comments(reviews):
         return ReviewStatus.COMMENTED
     return ReviewStatus.OPEN
+
+
+def submission_time(review: Review) -> float:
+    return review.submitted_at.timestamp() if review.submitted_at else inf
+
+
+def review_url(reviews: Reviews, status: ReviewStatus | None) -> str | None:
+    """The latest change request, the oldest review with an unresolved comment,
+    or else the PR."""
+    url = None
+    if status == ReviewStatus.CHANGES_REQUESTED:
+        blockers = [
+            r for r in current_reviews(reviews) if r.state == "CHANGES_REQUESTED"
+        ]
+        url = max(blockers, key=submission_time).url
+    elif status == ReviewStatus.COMMENTED:
+        url = min(unresolved_comments(reviews), key=submission_time).url
+    return url or reviews.pr_url
 
 
 def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
     if result is Pending.PENDING:
         return Outcome()
-    status = review_status(result.state) if result.state is not None else None
-    return Outcome(status, result.error is not None)
+    failed = result.error is not None
+    if result.state is None:
+        return Outcome(failed=failed)
+    status = review_status(result.state)
+    url = review_url(result.state, status) if status else None
+    return Outcome(status, failed, url, has_pr=result.state.pr_id is not None)
 
 
 def poll_interval(result: Result[Reviews], age: float) -> float:
@@ -428,9 +459,14 @@ def poll_interval(result: Result[Reviews], age: float) -> float:
     return POLL_INTERVAL
 
 
-async def remote_branch_review_status(
-    remote: RemoteBranch, *, wait: bool
-) -> Outcome[ReviewStatus]:
+async def pr_review_status(branch: Branch, *, wait: bool) -> Outcome[ReviewStatus]:
+    """The review status of the branch's open PR.
+
+    If wait is false, a status that has not loaded is None.
+    """
+    remote = pr_remote_branch(branch)
+    if remote is None:
+        return Outcome()
     found = github_repository(remote.remote)
     if found is None:
         return Outcome()
@@ -443,17 +479,3 @@ async def remote_branch_review_status(
         wait=wait,
     )
     return review_outcome(result)
-
-
-async def pr_review_status(branch: Branch, *, wait: bool) -> Outcome[ReviewStatus]:
-    """The combined review status of the open PRs of the branch's remote branches.
-
-    If wait is false, a status that has not loaded is None.
-    """
-    remotes = {
-        r for r in (branch.upstream, branch.downstream) if isinstance(r, RemoteBranch)
-    }
-    outcomes = await asyncio.gather(
-        *(remote_branch_review_status(r, wait=wait) for r in remotes)
-    )
-    return combine_outcomes(outcomes)
