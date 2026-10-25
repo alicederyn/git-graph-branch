@@ -216,6 +216,15 @@ class RowsControl(UIControl):
             )
         get_app().invalidate()
 
+    def hide_tooltip(self) -> None:
+        """Hide the tooltip until the pointer moves.
+
+        tmux keeps the pane contents while its window is hidden, so the
+        tooltip must be drawn away before the user comes back.
+        """
+        self.pointer = None
+        self.hover()
+
     def show_tooltip(self) -> None:
         self.tooltip_timer = None
         self.tooltip_shown = True
@@ -389,6 +398,9 @@ async def show_watching(config: Config, refresh: Refresh) -> None:
         app.invalidate()
 
     # If refresh fails, the app is cancelled, so it restores the terminal
-    async with tmux.watch_window_visibility(), background_task(refresh(show)):
+    async with (
+        tmux.watch_window_visibility(on_hide=control.hide_tooltip),
+        background_task(refresh(show)),
+    ):
         # SIGINT and SIGTERM stay with cli.handle_signals
         await app.run_async(handle_sigint=False)
