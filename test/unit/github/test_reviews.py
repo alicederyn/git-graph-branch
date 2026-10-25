@@ -45,11 +45,13 @@ def reviews(
     requested: frozenset[str] = frozenset(),
     requested_at: tuple[tuple[str, datetime], ...] = (),
     unresolved: tuple[Review, ...] = (),
+    draft: bool = False,
 ) -> Reviews:
     return Reviews(
         "PR",
         PR_URL,
         decision,
+        draft,
         opinionated,
         requested,
         requested_at,
@@ -155,6 +157,21 @@ def test_open_review_status(state: Reviews) -> None:
     assert review_status(state) == ReviewStatus.OPEN
 
 
+@pytest.mark.parametrize(
+    "state, status",
+    [
+        (reviews(draft=True), ReviewStatus.DRAFT),
+        (
+            reviews("APPROVED", (opinion("ann", "APPROVED"),), draft=True),
+            ReviewStatus.APPROVED,
+        ),
+    ],
+    ids=["no reviews", "approved"],
+)
+def test_draft_review_status(state: Reviews, status: ReviewStatus) -> None:
+    assert review_status(state) == status
+
+
 def test_no_pr_has_no_review_status() -> None:
     assert review_status(NO_PR) is None
 
@@ -226,6 +243,13 @@ def test_review_outcome(
             "Awaiting ann, bob (2d)",
         ),
         (reviews(), "No reviewers requested"),
+        (
+            reviews(
+                requested=frozenset({"ann"}), requested_at=(("ann", T0),), draft=True
+            ),
+            "Draft, awaiting ann (2d)",
+        ),
+        (reviews(draft=True), "Draft, no reviewers requested"),
     ],
     ids=[
         "approved",
@@ -234,6 +258,8 @@ def test_review_outcome(
         "threads from one review",
         "awaiting since the oldest request",
         "no reviewers",
+        "draft",
+        "draft with no reviewers",
     ],
 )
 def test_review_tooltip(state: Reviews, tooltip: str) -> None:
@@ -337,6 +363,7 @@ class FakeGitHub:
             "id": self.pr_id,
             "url": PR_URL,
             "reviewDecision": None,
+            "isDraft": False,
             "latestOpinionatedReviews": self.opinionated[None],
             "reviewRequests": page([]),
             "timelineItems": page([]),
