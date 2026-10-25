@@ -21,18 +21,7 @@ class Outcome[E: Enum](NamedTuple):
     """The status from the last load that did not fail."""
     failed: bool = False
     """Whether the latest load failed."""
-
-
-def combine[E: Enum](statuses: list[E | None]) -> E | None:
-    """The status that comes first in its enum."""
-    known = [status for status in statuses if status is not None]
-    if not known:
-        return None
-    order = list(type(known[0]))
-    return min(known, key=order.index)
-
-
-def combine_outcomes[E: Enum](outcomes: list[Outcome[E]]) -> Outcome[E]:
-    return Outcome(
-        combine([o.status for o in outcomes]), any(o.failed for o in outcomes)
-    )
+    url: str | None = None
+    """Where the status icon links, from the last load that did not fail."""
+    has_pr: bool | None = None
+    """Whether the branch has an open PR, or None if no load has succeeded."""

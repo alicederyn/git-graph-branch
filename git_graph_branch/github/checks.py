@@ -1,19 +1,16 @@
-"""The check status of the open PRs for a branch (ADR 5)."""
+"""The check status of the open PR for a branch (ADR 5)."""
 
-import asyncio
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
-from ..git.branch import Branch, RemoteBranch
-from .common import Outcome, combine_outcomes, get
+from ..git.branch import Branch
+from .common import Outcome, get
 from .loader import Fetch, Pending, Result, load
-from .remote import github_repository
+from .remote import Repository, github_repository, new_pr_url, pr_remote_branch
 
 
 class CheckStatus(Enum):
-    """In order of precedence, when the statuses of several PRs combine."""
-
     FAILED = "❌"
     LOADING = "🔌"
     PENDING = "⌛"
@@ -36,6 +33,7 @@ SLOW_INTERVAL = 300.0
 PR_CHECKS_QUERY = """
 query ($owner: String!, $name: String!, $ref: String!) {
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     ref(qualifiedName: $ref) {
       associatedPullRequests(states: OPEN, first: 1) {
         nodes {
@@ -71,25 +69,55 @@ def base_repository_has_checks(data: dict[str, Any]) -> bool:
     )
 
 
+def pr(data: dict[str, Any]) -> dict[str, Any] | None:
+    return get(data, "repository", "ref", "associatedPullRequests", "nodes", 0)  # type: ignore[no-any-return]
+
+
+def pr_rollup(pr: dict[str, Any]) -> dict[str, Any] | None:
+    return get(pr, "commits", "nodes", 0, "commit", "statusCheckRollup")  # type: ignore[no-any-return]
+
+
 def pr_rollup_state(data: dict[str, Any]) -> str | None:
-    return get(  # type: ignore[no-any-return]
-        data,
-        *("repository", "ref", "associatedPullRequests", "nodes", 0),
-        *("commits", "nodes", 0, "commit", "statusCheckRollup", "state"),
-    )
+    pr_node = pr(data)
+    rollup = pr_rollup(pr_node) if pr_node else None
+    return rollup["state"] if rollup else None
 
 
-def check_outcome(result: Result[dict[str, Any]] | Pending) -> Outcome[CheckStatus]:
-    """The check status, and whether the latest load failed.
+def new_pr_link(
+    data: dict[str, Any], repository: Repository, branch: str
+) -> str | None:
+    """The link to create a PR, unless the branch is the repository's default
+    branch, as GitHub does not show it then."""
+    if get(data, "repository", "ref") is None:
+        return None
+    if get(data, "repository", "defaultBranchRef", "name") == branch:
+        return None
+    return new_pr_url(repository, branch)
 
-    A rollup state that GitHub adds later is not known, and counts as a failure.
+
+def check_outcome(
+    result: Result[dict[str, Any]] | Pending, repository: Repository, branch: str
+) -> Outcome[CheckStatus]:
+    """The check status of the PR for a remote branch.
+
+    With no PR, the URL is the link to create one. A rollup state that GitHub
+    adds later is not known, and counts as a failure.
     """
     if result is Pending.PENDING:
         return Outcome(CheckStatus.LOADING)
-    state = pr_rollup_state(result.state) if result.state is not None else None
+    failed = result.error is not None
+    data = result.state
+    if data is None:
+        return Outcome(failed=failed)
+    pr_node = pr(data)
+    if pr_node is None:
+        return Outcome(
+            failed=failed, url=new_pr_link(data, repository, branch), has_pr=False
+        )
+    state = pr_rollup_state(data)
     unknown = state is not None and state not in ROLLUP_STATUS
     status = ROLLUP_STATUS.get(state) if state else None
-    return Outcome(status, result.error is not None or unknown)
+    return Outcome(status, failed or unknown, has_pr=True)
 
 
 def poll_interval(result: Result[dict[str, Any]], age: float) -> float:
@@ -116,9 +144,14 @@ async def load_pr_checks(
     return await fetch(PR_CHECKS_QUERY, {"owner": owner, "name": name, "ref": ref})
 
 
-async def remote_branch_check_status(
-    remote: RemoteBranch, *, wait: bool
-) -> Outcome[CheckStatus]:
+async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]:
+    """The check status of the branch's open PR.
+
+    If wait is false, a status that has not loaded is LOADING.
+    """
+    remote = pr_remote_branch(branch)
+    if remote is None:
+        return Outcome()
     found = github_repository(remote.remote)
     if found is None:
         return Outcome()
@@ -132,18 +165,4 @@ async def remote_branch_check_status(
         version=remote.commit.hash,
         wait=wait,
     )
-    return check_outcome(result)
-
-
-async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]:
-    """The combined check status of the open PRs of the branch's remote branches.
-
-    If wait is false, a status that has not loaded is LOADING.
-    """
-    remotes = {
-        r for r in (branch.upstream, branch.downstream) if isinstance(r, RemoteBranch)
-    }
-    outcomes = await asyncio.gather(
-        *(remote_branch_check_status(r, wait=wait) for r in remotes)
-    )
-    return combine_outcomes(outcomes)
+    return check_outcome(result, repository, remote.name)

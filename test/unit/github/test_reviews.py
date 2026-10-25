@@ -5,7 +5,7 @@ from typing import Any
 import aiohttp
 import pytest
 
-from git_graph_branch.github.common import Outcome, combine
+from git_graph_branch.github.common import Outcome
 from git_graph_branch.github.loader import Pending, Result
 from git_graph_branch.github.reviews import (
     NO_PR,
@@ -25,14 +25,17 @@ from git_graph_branch.github.reviews import (
 
 T0 = datetime(2026, 10, 1)
 LATER = T0 + timedelta(hours=1)
+PR_URL = "https://github.com/o/n/pull/1"
 
 
-def opinion(author: str, state: str, at: datetime = T0) -> Review:
-    return Review(author, state, at)
+def opinion(
+    author: str, state: str, at: datetime = T0, url: str | None = None
+) -> Review:
+    return Review(author, state, at, url)
 
 
-def comment(author: str, at: datetime = T0) -> Review:
-    return Review(author, "COMMENTED", at)
+def comment(author: str, at: datetime = T0, url: str | None = None) -> Review:
+    return Review(author, "COMMENTED", at, url)
 
 
 def reviews(
@@ -44,12 +47,12 @@ def reviews(
 ) -> Reviews:
     return Reviews(
         "PR",
+        PR_URL,
         decision,
         opinionated,
         requested,
         requested_at,
         unresolved,
-        None,
     )
 
 
@@ -160,12 +163,18 @@ def test_no_pr_has_no_review_status() -> None:
     [
         (
             Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), TimeoutError()),
-            Outcome(ReviewStatus.APPROVED, failed=True),
+            Outcome(ReviewStatus.APPROVED, failed=True, url=PR_URL, has_pr=True),
         ),
         (Result(None, TimeoutError()), Outcome(failed=True)),
         (Pending.PENDING, Outcome()),
+        (Result(NO_PR), Outcome(has_pr=False)),
     ],
-    ids=["failed load keeps the last status", "first load failed", "loading"],
+    ids=[
+        "failed load keeps the last status",
+        "first load failed",
+        "loading",
+        "no PR",
+    ],
 )
 def test_review_outcome(
     result: Result[Reviews] | Pending, outcome: Outcome[ReviewStatus]
@@ -173,10 +182,32 @@ def test_review_outcome(
     assert review_outcome(result) == outcome
 
 
-def test_combine_prefers_changes_requested() -> None:
-    statuses = [ReviewStatus.APPROVED, ReviewStatus.CHANGES_REQUESTED, None]
+def test_changes_requested_links_to_the_latest_change_request() -> None:
+    state = reviews(
+        "CHANGES_REQUESTED",
+        (
+            opinion("bob", "CHANGES_REQUESTED", LATER, url="bob"),
+            opinion("dan", "CHANGES_REQUESTED", T0, url="dan"),
+        ),
+    )
 
-    assert combine(statuses) == ReviewStatus.CHANGES_REQUESTED
+    assert review_outcome(Result(state)).url == "bob"
+
+
+def test_comments_link_to_the_oldest_review_with_an_unresolved_comment() -> None:
+    state = reviews(
+        unresolved=frozenset(
+            {comment("cat", LATER, url="cat"), comment("eve", T0, url="eve")}
+        )
+    )
+
+    assert review_outcome(Result(state)).url == "eve"
+
+
+def test_review_without_url_links_to_the_pr() -> None:
+    state = reviews(unresolved=frozenset({comment("cat")}))
+
+    assert review_outcome(Result(state)).url == PR_URL
 
 
 @pytest.mark.parametrize(
@@ -197,7 +228,12 @@ def page(items: list[Any], *, end: str | None = None, key: str = "nodes") -> Any
 
 
 def thread(cursor: str, resolved: bool, author: str = "cat") -> dict[str, Any]:
-    review = {"state": "COMMENTED", "submittedAt": None, "author": {"login": author}}
+    review = {
+        "url": None,
+        "state": "COMMENTED",
+        "submittedAt": None,
+        "author": {"login": author},
+    }
     comments = {"nodes": [{"pullRequestReview": review}]}
     return {"cursor": cursor, "node": {"isResolved": resolved, "comments": comments}}
 
@@ -240,6 +276,7 @@ class FakeGitHub:
         assert document == PR_REVIEWS_QUERY
         pr = {
             "id": self.pr_id,
+            "url": PR_URL,
             "reviewDecision": None,
             "latestOpinionatedReviews": self.opinionated[None],
             "reviewRequests": page([]),
@@ -254,7 +291,12 @@ async def load(github: FakeGitHub, previous: Reviews | None) -> Reviews:
 
 
 async def test_load_reads_every_page() -> None:
-    review = {"state": "APPROVED", "submittedAt": None, "author": {"login": "ann"}}
+    review = {
+        "url": "ann",
+        "state": "APPROVED",
+        "submittedAt": None,
+        "author": {"login": "ann"},
+    }
     github = FakeGitHub(
         [*resolved_threads(11), thread("t12", False)],
         opinionated={None: page([], end="r1"), "r1": page([review])},
@@ -262,7 +304,7 @@ async def test_load_reads_every_page() -> None:
 
     state = await load(github, None)
 
-    assert state.opinionated == (Review("ann", "APPROVED", None),)
+    assert state.opinionated == (Review("ann", "APPROVED", None, "ann"),)
     assert state.unresolved == {Review("cat", "COMMENTED", None)}
     assert github.thread_pages == [(None, 10), ("t10", 2)]
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from os import environ
 from urllib.request import getproxies, proxy_bypass
 
+from ..git.branch import Branch, RemoteBranch
 from ..git.config import http_config, remote_url
 from .loader import Endpoint
 
@@ -34,6 +35,15 @@ def parse_repo_url(url: str) -> Repository | None:
     """
     m = HTTPS_URL.match(url) or GIT_URL.match(url)
     return Repository(*m.groups()) if m else None
+
+
+def new_pr_url(repository: Repository, branch: str) -> str:
+    """The link that GitHub shows on the first push of branch.
+
+    >>> new_pr_url(Repository("github.com", "alicederyn", "git-sync"), "feature/x")
+    'https://github.com/alicederyn/git-sync/pull/new/feature/x'
+    """
+    return f"https://{repository.domain}/{repository.owner}/{repository.name}/pull/new/{branch}"
 
 
 def remote_repository(remote: str) -> Repository | None:
@@ -98,3 +108,15 @@ def github_repository(remote: str) -> tuple[Endpoint, Repository] | None:
         return None
     github = endpoint(repository.domain)
     return (github, repository) if github else None
+
+
+def pr_remote_branch(branch: Branch) -> RemoteBranch | None:
+    """The remote branch whose open PR is the branch's PR (ADR 5).
+
+    This is the push target: the branch on the pushdefault remote, else the
+    upstream branch if it is on a remote.
+    """
+    if downstream := branch.downstream:
+        return downstream
+    upstream = branch.upstream
+    return upstream if isinstance(upstream, RemoteBranch) else None

@@ -23,6 +23,7 @@ from prompt_toolkit.styles import DummyStyle, Style
 
 from . import tmux
 from .display import Config, Frame
+from .links import Link
 from .viewport import Viewport
 
 if TYPE_CHECKING:
@@ -64,6 +65,22 @@ def terminal_output(config: Config) -> Output:
     )
 
 
+def hyperlinked(row: StyleAndTextTuples) -> StyleAndTextTuples:
+    """Make each fragment that has a Link into an OSC 8 hyperlink.
+
+    With no mouse reporting, the terminal opens the link on Ctrl-click.
+    """
+    fragments: StyleAndTextTuples = []
+    for style, text, *handler in row:
+        if handler and isinstance(handler[0], Link):
+            fragments.append(("[ZeroWidthEscape]", f"\x1b]8;;{handler[0].url}\x1b\\"))
+            fragments.append((style, text))
+            fragments.append(("[ZeroWidthEscape]", "\x1b]8;;\x1b\\"))
+        else:
+            fragments.append((style, text))
+    return fragments
+
+
 def rows_to_fragments(rows: Rows) -> StyleAndTextTuples:
     """Concatenate the rows into one newline-separated fragment list."""
     fragments: StyleAndTextTuples = []
@@ -75,15 +92,32 @@ def rows_to_fragments(rows: Rows) -> StyleAndTextTuples:
 
 
 async def show_once(config: Config, refresh: Refresh) -> None:
-    """Write each refresh of the rows straight to the terminal."""
+    """Write each refresh of the rows straight to the terminal.
+
+    Links are written only with colour, as escape sequences are then allowed.
+    """
     output = terminal_output(config)
 
     def show(frame: Frame) -> None:
+        rows = [hyperlinked(row) for row in frame.rows] if config.color else frame.rows
         print_formatted_text(
-            FormattedText(rows_to_fragments(frame.rows)), style=STYLE, output=output
+            FormattedText(rows_to_fragments(rows)), style=STYLE, output=output
         )
 
     await refresh(show)
+
+
+def fragment_at(row: StyleAndTextTuples, col: int) -> int | None:
+    """The index of the fragment that holds the character at col."""
+    end = 0
+    for index, fragment in enumerate(row):
+        end += len(fragment[1])
+        if col < end:
+            return index
+    return None
+
+
+END_OF_LINE: StyleAndTextTuples = [("", " ")]
 
 
 class RowsControl(UIControl):
@@ -98,9 +132,19 @@ class RowsControl(UIControl):
         self.frame = Frame([], None)
         self.viewport = Viewport()
         self.height = 0
+        self.lines: Rows = []
 
     def create_content(self, width: int, height: int) -> UIContent:
-        lines = self.visible_rows(height)
+        """The visible rows, each with a space after it, and lines of one space
+        below them.
+
+        Window gives a click to the nearest character: the last character of
+        the row for a click to its right, and the last row for a click below
+        the rows. The spaces make sure that these clicks do not find a link.
+        """
+        lines = [[*row, *END_OF_LINE] for row in self.visible_rows(height)]
+        lines += [END_OF_LINE] * (height - len(lines))
+        self.lines = lines
         return UIContent(
             get_line=lambda i: lines[i], line_count=len(lines), show_cursor=False
         )
@@ -141,7 +185,18 @@ class RowsControl(UIControl):
         if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
             self.scroll(1)
             return None
-        return NotImplemented
+        return self.fragment_mouse_handler(mouse_event)
+
+    def fragment_mouse_handler(self, mouse_event: MouseEvent) -> "NotImplementedOrNone":
+        """Pass the event to the mouse handler of the fragment at its position."""
+        position = mouse_event.position
+        if position.y >= len(self.lines):
+            return NotImplemented
+        row = self.lines[position.y]
+        index = fragment_at(row, position.x)
+        if index is None or len(row[index]) < 3:
+            return NotImplemented
+        return row[index][2](mouse_event)  # type: ignore[misc]
 
 
 def scroll_key_bindings(control: RowsControl) -> KeyBindings:

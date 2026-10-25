@@ -5,13 +5,14 @@ from argparse import Namespace
 from enum import Enum
 from typing import Any, Iterable, NamedTuple
 
-from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.formatted_text import OneStyleAndTextTuple, StyleAndTextTuples
 
 from .dag import NodeArt, layout
 from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
 from .github import CheckStatus, ReviewStatus, pr_check_status, pr_review_status
+from .links import Link
 
 
 class Config(Namespace):
@@ -39,6 +40,9 @@ class PrStatus(NamedTuple):
     review: ReviewStatus | None = None
     failed: bool = False
     """Whether the latest load of either status failed."""
+    review_url: str | None = None
+    new_pr_url: str | None = None
+    """Where to create a PR, once both statuses have loaded with no PR."""
 
 
 class Frame(NamedTuple):
@@ -102,19 +106,26 @@ def branch_style(b: Branch) -> str:
     return ""
 
 
-def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> str:
+def icon(text: str, url: str | None) -> OneStyleAndTextTuple:
+    return ("", text, Link(url)) if url else ("", text)
+
+
+def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> StyleAndTextTuples:
     """The push and PR status icons, with the review icon in place of 🔷 if a PR is open."""
-    icons = []
+    icons: StyleAndTextTuples = []
     if config.remote_icons:
         sync_status = remote_sync_status(b)
-        if not (sync_status == SyncStatus.IN_SYNC and pr_status.review):
-            icons.append(SYNC_STATUS_ICON[sync_status])
-    icons.extend(
-        status.value for status in (pr_status.review, pr_status.check) if status
-    )
+        if sync_status != SyncStatus.NO_REMOTE and not (
+            sync_status == SyncStatus.IN_SYNC and pr_status.review
+        ):
+            icons.append(icon(SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url))
+    if pr_status.review:
+        icons.append(icon(pr_status.review.value, pr_status.review_url))
+    if pr_status.check:
+        icons.append(("", pr_status.check.value))
     if pr_status.failed:
-        icons.append("⚠️")
-    return "".join(icons)
+        icons.append(("", "⚠️"))
+    return icons
 
 
 def branch_fragments(
@@ -129,7 +140,8 @@ def branch_fragments(
     if b.name in worktree_branches:
         fragments.append(("", " 🌲"))
     if icons := status_icons(b, config, pr_status):
-        fragments.append(("", " " + icons))
+        fragments.append(("", " "))
+        fragments.extend(icons)
     unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
         fragments.append(("class:unmerged", f" [{unmerged} unmerged]"))
@@ -140,7 +152,14 @@ async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
     check, review = await asyncio.gather(
         pr_check_status(branch, wait=wait), pr_review_status(branch, wait=wait)
     )
-    return PrStatus(check.status, review.status, check.failed or review.failed)
+    has_no_pr = check.has_pr is False and review.has_pr is False
+    return PrStatus(
+        check.status,
+        review.status,
+        check.failed or review.failed,
+        review.url,
+        check.url if has_no_pr else None,
+    )
 
 
 async def pr_statuses(config: Config, branches: list[Branch]) -> list[PrStatus]:
