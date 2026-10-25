@@ -21,6 +21,7 @@ class ReviewStatus(Enum):
     COMMENTED = "💬"
     APPROVED = "👍"
     OPEN = "📭"
+    DRAFT = "📝"
 
 
 POLL_INTERVAL = 300.0
@@ -138,7 +139,7 @@ query ($owner: String!, $name: String!, $ref: String!, VARIABLES) {
   repository(owner: $owner, name: $name) {
     ref(qualifiedName: $ref) {
       associatedPullRequests(states: OPEN, first: 1) {
-        nodes { id url reviewDecision SPREADS }
+        nodes { id url reviewDecision isDraft SPREADS }
       }
     }
   }
@@ -164,6 +165,7 @@ class Reviews:
     """None if the branch has no open PR."""
     pr_url: str | None = None
     decision: str | None = None
+    draft: bool = False
     opinionated: tuple[Review, ...] = ()
     """The latest approval or change request of each user."""
     requested: frozenset[str] = frozenset()
@@ -298,6 +300,7 @@ async def load_pr_reviews(
         pr_id=pr_id,
         pr_url=pr["url"],
         decision=pr["reviewDecision"],
+        draft=pr["isDraft"],
         opinionated=tuple(review(node) for node in opinionated),
         requested=frozenset(
             login
@@ -420,7 +423,7 @@ def review_status(reviews: Reviews) -> ReviewStatus | None:
         return ReviewStatus.AWAITING_DISMISSAL
     if unresolved_comments(reviews):
         return ReviewStatus.COMMENTED
-    return ReviewStatus.OPEN
+    return ReviewStatus.DRAFT if reviews.draft else ReviewStatus.OPEN
 
 
 def submission_time(review: Review) -> float:
@@ -455,10 +458,11 @@ def age(delta: timedelta) -> str:
 
 
 def awaiting_tooltip(reviews: Reviews, now: datetime) -> str:
-    """Who is asked for a review, and how long the oldest request has waited."""
+    """Who is asked for a review, and how long the oldest request has waited, in
+    lower case to follow other text."""
     if not reviews.requested:
-        return "No reviewers requested"
-    text = f"Awaiting {', '.join(sorted(reviews.requested))}"
+        return "no reviewers requested"
+    text = f"awaiting {', '.join(sorted(reviews.requested))}"
     # A user asked again has a later event, which replaces the earlier one
     asked = [
         at
@@ -488,7 +492,10 @@ def review_tooltip(reviews: Reviews, status: ReviewStatus, now: datetime) -> str
             count = len(unresolved_comments(reviews))
             return f"{count} unresolved thread{'' if count == 1 else 's'}"
         case ReviewStatus.OPEN:
-            return awaiting_tooltip(reviews, now)
+            text = awaiting_tooltip(reviews, now)
+            return text[0].upper() + text[1:]
+        case ReviewStatus.DRAFT:
+            return f"Draft, {awaiting_tooltip(reviews, now)}"
 
 
 def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
