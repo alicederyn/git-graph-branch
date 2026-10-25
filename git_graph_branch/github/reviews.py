@@ -443,7 +443,7 @@ def review_url(reviews: Reviews, status: ReviewStatus | None) -> str | None:
 
 def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
     if result is Pending.PENDING:
-        return Outcome()
+        return Outcome(loading=True)
     failed = result.error is not None
     if result.state is None:
         return Outcome(failed=failed)
@@ -462,14 +462,14 @@ def poll_interval(result: Result[Reviews], age: float) -> float:
 async def pr_review_status(branch: Branch, *, wait: bool) -> Outcome[ReviewStatus]:
     """The review status of the branch's open PR.
 
-    If wait is false, a status that has not loaded is None.
+    If wait is false, a status that has not loaded is loading.
     """
     remote = pr_remote_branch(branch)
     if remote is None:
-        return Outcome()
+        return Outcome(has_pr=False)
     found = github_repository(remote.remote)
     if found is None:
-        return Outcome()
+        return Outcome(has_pr=False)
     github, repository = found
     result = await load(
         github,
