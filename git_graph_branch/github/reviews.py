@@ -21,6 +21,7 @@ class ReviewStatus(Enum):
     AWAITING_DISMISSAL = "🚧"
     COMMENTED = "💬"
     APPROVED = "👍"
+    OPEN = "📭"
 
 
 POLL_INTERVAL = 300.0
@@ -394,6 +395,8 @@ def has_unresolved_comments(reviews: Reviews) -> bool:
 
 
 def review_status(reviews: Reviews) -> ReviewStatus | None:
+    if reviews.pr_id is None:
+        return None
     # A dismissed review has the state DISMISSED
     current = [
         r
@@ -408,7 +411,7 @@ def review_status(reviews: Reviews) -> ReviewStatus | None:
         return ReviewStatus.AWAITING_DISMISSAL
     if has_unresolved_comments(reviews):
         return ReviewStatus.COMMENTED
-    return None
+    return ReviewStatus.OPEN
 
 
 def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:

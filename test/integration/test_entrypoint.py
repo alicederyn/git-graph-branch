@@ -145,7 +145,7 @@ async def test_worktree_branch_indicator(
 
 
 @pytest.mark.usefixtures("repo")
-async def test_adjacent_icons_have_no_space_between_them(
+async def test_worktree_icon_is_spaced_from_status_icons(
     capsys: pytest.CaptureFixture[str], tmp_path: str
 ) -> None:
     config_setup()
@@ -157,7 +157,7 @@ async def test_adjacent_icons_have_no_space_between_them(
     await amain(["--remote-icons"])
 
     out, err = capsys.readouterr()
-    assert "feature 🌲🔷" in out
+    assert "feature 🌲 🔷" in out
     assert err == ""
 
 
@@ -177,5 +177,41 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
         await amain(["--pr-icons"])
 
     out, err = capsys.readouterr()
-    assert "feature ✅👍⚠️" in out
+    assert "feature 👍✅⚠️" in out
+    assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+@pytest.mark.parametrize(
+    "remote_commit, review, check, icons",
+    [
+        (1, ReviewStatus.OPEN, CheckStatus.PASSED, "📭✅"),
+        (0, ReviewStatus.COMMENTED, CheckStatus.FAILED, "🔶💬❌"),
+    ],
+    ids=["in sync", "out of sync"],
+)
+async def test_open_pr_review_icon_replaces_in_sync_icon(
+    capsys: pytest.CaptureFixture[str],
+    remote_commit: int,
+    review: ReviewStatus,
+    check: CheckStatus,
+    icons: str,
+) -> None:
+    config_setup()
+    commits = [git_test_commit(), git_test_commit()]
+    check_call(["git", "branch", "feature"])
+    git_remote_repo("origin", feature=commits[remote_commit])
+
+    with (
+        patch.object(
+            display, "pr_check_status", new=AsyncMock(return_value=Outcome(check))
+        ),
+        patch.object(
+            display, "pr_review_status", new=AsyncMock(return_value=Outcome(review))
+        ),
+    ):
+        await amain(["--remote-icons", "--pr-icons"])
+
+    out, err = capsys.readouterr()
+    assert f"feature {icons}\r\n" in out
     assert err == ""
