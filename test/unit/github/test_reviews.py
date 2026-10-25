@@ -136,7 +136,6 @@ def test_review_status(state: Reviews, status: ReviewStatus) -> None:
             (opinion("cat", "DISMISSED", LATER),),
             unresolved=frozenset({comment("cat", T0)}),
         ),
-        NO_PR,
     ],
     ids=[
         "no reviews",
@@ -146,11 +145,14 @@ def test_review_status(state: Reviews, status: ReviewStatus) -> None:
         "re-requested commenter",
         "comment cleared by later approval",
         "comment cleared by later dismissal",
-        "no PR",
     ],
 )
-def test_no_review_status(state: Reviews) -> None:
-    assert review_status(state) is None
+def test_open_review_status(state: Reviews) -> None:
+    assert review_status(state) == ReviewStatus.OPEN
+
+
+def test_no_pr_has_no_review_status() -> None:
+    assert review_status(NO_PR) is None
 
 
 @pytest.mark.parametrize(
