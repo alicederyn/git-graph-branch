@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+
+import pytest
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
@@ -5,7 +8,11 @@ from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from git_graph_branch.display import Frame
 from git_graph_branch.ui import RowsControl
 
+if TYPE_CHECKING:
+    from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
+
 WIDTH = 80
+LINK_X = len("branch ")
 
 
 def frame(rows: int, head: int | None) -> Frame:
@@ -17,7 +24,7 @@ def visible(control: RowsControl, height: int) -> list[str]:
     lines: list[StyleAndTextTuples] = [
         content.get_line(i) for i in range(content.line_count)
     ]
-    return [fragment[1] for line in lines for fragment in line]
+    return [fragment[1] for line in lines for fragment in line if fragment[1] != " "]
 
 
 def wheel(event_type: MouseEventType) -> MouseEvent:
@@ -27,6 +34,28 @@ def wheel(event_type: MouseEventType) -> MouseEvent:
         button=MouseButton.NONE,
         modifiers=frozenset(),
     )
+
+
+def click(x: int, y: int = 0) -> MouseEvent:
+    return MouseEvent(
+        position=Point(x=x, y=y),
+        event_type=MouseEventType.MOUSE_DOWN,
+        button=MouseButton.LEFT,
+        modifiers=frozenset(),
+    )
+
+
+class Handler:
+    def __init__(self) -> None:
+        self.events: list[MouseEvent] = []
+
+    def __call__(self, mouse_event: MouseEvent) -> "NotImplementedOrNone":
+        self.events.append(mouse_event)
+        return None
+
+
+def linked_frame(*handlers: Handler) -> Frame:
+    return Frame([[("", "branch "), *(("", "👍", h) for h in handlers)]], 0)
 
 
 def test_the_window_is_centred_on_the_head_branch() -> None:
@@ -100,3 +129,33 @@ def test_a_new_frame_recentres_a_head_branch_that_scrolls_away() -> None:
     control.frame = frame(rows=10, head=9)
 
     assert visible(control, height=3) == ["branch7", "branch8", "branch9"]
+
+
+def test_a_click_on_a_link_goes_to_its_handler() -> None:
+    """Window gives the control a character index, not a screen column, so the
+    second icon is one character after the first, though the first is two
+    columns wide."""
+    first, second = Handler(), Handler()
+    control = RowsControl()
+    control.frame = linked_frame(first, second)
+    control.create_content(WIDTH, 1)
+
+    event = click(LINK_X + 1)
+
+    assert control.mouse_handler(event) is None
+    assert (first.events, second.events) == ([], [event])
+
+
+@pytest.mark.parametrize(
+    "position",
+    [click(0), click(LINK_X + 1), click(0, y=1)],
+    ids=["other text", "end of row", "below the rows"],
+)
+def test_a_click_off_a_link_is_left_to_the_window(position: MouseEvent) -> None:
+    """Window gives a click right of a row to the row's last character, and a
+    click below the rows to the last row."""
+    control = RowsControl()
+    control.frame = linked_frame(Handler())
+    control.create_content(WIDTH, 2)
+
+    assert control.mouse_handler(position) is NotImplemented
