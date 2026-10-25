@@ -62,7 +62,6 @@ A plain drag does not select text in watch mode. In most terminals, hold Shift w
 | 🔶 | The branch is out of sync with the remote |
 | ❌ | A GitHub check failed |
 | ⌛ | GitHub checks are pending |
-| ✅ | All GitHub checks passed |
 | 🔌 | The PR status is loading |
 | ⚠️ |  An error occurred fetching PR status from GitHub |
 
