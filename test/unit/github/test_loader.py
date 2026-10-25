@@ -97,12 +97,35 @@ async def test_load_reuses_the_result_of_an_earlier_calculation(
     assert post.call_count == 1
 
 
-async def test_a_new_version_loads_again(one_shot: None, post: AsyncMock) -> None:
+async def test_a_new_version_keeps_the_state_and_loads_again(
+    watching: None, post: AsyncMock
+) -> None:
     with report_calculation():
         await load(ENDPOINT, echo, (1,), never_poll, version="a")
-        await load(ENDPOINT, echo, (1,), never_poll, version="b")
+    with report_calculation():
+        result = await load(ENDPOINT, echo, (1,), never_poll, version="b", wait=False)
+    await asyncio.sleep(0.05)
 
+    assert result == Result({"echo": 1})
     assert post.call_count == 2
+
+
+async def test_a_new_version_restarts_the_poll_age(watching: None) -> None:
+    ages: list[float] = []
+
+    def record_age(result: object, age: float) -> float:
+        ages.append(age)
+        return 1e9
+
+    with report_calculation():
+        await load(ENDPOINT, echo, (1,), record_age, version="a")
+    await asyncio.sleep(0.1)
+    with report_calculation():
+        await load(ENDPOINT, echo, (1,), record_age, version="b")
+    await asyncio.sleep(0.05)
+
+    assert len(ages) == 2
+    assert ages[1] < 0.1
 
 
 async def test_later_fetches_share_requests_without_waiting(
