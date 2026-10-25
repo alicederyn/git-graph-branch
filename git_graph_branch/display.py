@@ -108,6 +108,21 @@ def is_claude_worktree(worktree: Path) -> bool:
     return worktree.parent.parts[-2:] == (".claude", "worktrees")
 
 
+def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> str:
+    """The push and PR status icons, with the review icon in place of 🔷 if a PR is open."""
+    icons = []
+    if config.remote_icons:
+        sync_status = remote_sync_status(b)
+        if not (sync_status == SyncStatus.IN_SYNC and pr_status.review):
+            icons.append(SYNC_STATUS_ICON[sync_status])
+    icons.extend(
+        status.value for status in (pr_status.review, pr_status.check) if status
+    )
+    if pr_status.failed:
+        icons.append("⚠️")
+    return "".join(icons)
+
+
 def branch_fragments(
     art: NodeArt,
     b: Branch,
@@ -117,19 +132,11 @@ def branch_fragments(
     pr_status: PrStatus,
 ) -> StyleAndTextTuples:
     fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
-    icons = []
     worktree = worktree_branches.get(b.name)
     if worktree is not None:
-        icons.append("🤖" if is_claude_worktree(worktree) else "🌲")
-    if config.remote_icons:
-        icons.append(SYNC_STATUS_ICON[remote_sync_status(b)])
-    icons.extend(
-        status.value for status in (pr_status.check, pr_status.review) if status
-    )
-    if pr_status.failed:
-        icons.append("⚠️")
-    if any(icons):
-        fragments.append(("", " " + "".join(icons)))
+        fragments.append(("", " 🤖" if is_claude_worktree(worktree) else " 🌲"))
+    if icons := status_icons(b, config, pr_status):
+        fragments.append(("", " " + icons))
     unmerged = compute_unmerged(b, parents)
     if unmerged > 0:
         fragments.append(("class:unmerged", f" [{unmerged} unmerged]"))

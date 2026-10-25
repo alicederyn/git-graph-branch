@@ -14,7 +14,8 @@
 
 ┬◀┐ A branch with two merged upstream branches
 
-🔷  A remote branch exists with the same name and the same commit
+🔷  A remote branch exists with the same name and the same commit,
+    and has no open PR
 🔶  A remote branch exists with the same name
 
 [1 unmerged]  Upstream branches have unmerged commits
