@@ -1,13 +1,19 @@
 import asyncio
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import StyleAndTextTuples
-from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+from prompt_toolkit.mouse_events import (
+    MouseButton,
+    MouseEvent,
+    MouseEventType,
+    MouseModifier,
+)
 
 from git_graph_branch.display import Frame
-from git_graph_branch.links import Icon
+from git_graph_branch.links import MOONS, Icon
 from git_graph_branch.ui import RowsControl, padded_tooltip
 
 if TYPE_CHECKING:
@@ -255,3 +261,44 @@ async def test_hiding_the_tooltip_holds_until_the_pointer_moves() -> None:
     await asyncio.sleep(DELAY * 5)
 
     assert control.tooltip is None
+
+
+def ctrl_click(x: int) -> MouseEvent:
+    return MouseEvent(
+        position=Point(x=x, y=0),
+        event_type=MouseEventType.MOUSE_DOWN,
+        button=MouseButton.LEFT,
+        modifiers=frozenset({MouseModifier.CONTROL}),
+    )
+
+
+def icon_frame(icon: Icon) -> Frame:
+    return Frame([[("", "branch "), ("", "👍", icon)]], 0)
+
+
+def test_ctrl_click_on_a_link_opens_it() -> None:
+    control = RowsControl()
+    control.frame = icon_frame(Icon("https://x"))
+    visible(control, height=1)
+
+    with patch.object(control.opener, "click") as opener_click:
+        assert control.mouse_handler(ctrl_click(LINK_X)) is None
+    opener_click.assert_called_once_with("https://x")
+
+
+def test_plain_click_on_a_link_is_left_to_the_window() -> None:
+    control = RowsControl()
+    control.frame = icon_frame(Icon("https://x"))
+    visible(control, height=1)
+
+    with patch.object(control.opener, "click") as opener_click:
+        assert control.mouse_handler(click(LINK_X)) is NotImplemented
+    opener_click.assert_not_called()
+
+
+def test_an_opening_link_shows_the_moon() -> None:
+    control = RowsControl()
+    control.frame = icon_frame(Icon("https://x"))
+    control.opener.opening["https://x"] = 0
+
+    assert visible(control, height=1) == ["branch ", MOONS[0]]
