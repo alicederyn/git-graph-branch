@@ -29,7 +29,7 @@ options:
   -h, --help         show this help message and exit
   --color            Display colorized output; defaults to true if the output is a TTY and NO_COLOR is not set
   --remote-icons     Display remote status icon; defaults to true if the output is a TTY
-  --pr-icons         Display PR check status icon; defaults to true if the output is a TTY
+  --pr-icons         Display PR check and review status icons; defaults to true if the output is a TTY
 
 watch options:
   -w, --watch        Watch for changes and keep the graph updated
@@ -48,15 +48,26 @@ To see the rest of a long graph, scroll with the mouse wheel, the Up/Down arrow 
 
 A plain drag does not select text in watch mode. In most terminals, hold Shift while you drag. In iTerm2, hold Option instead.
 
-### PR check status
+### PR status
 
-If a branch's remote branch has an open pull request on GitHub, an icon shows the status of its checks: ❌ if any check failed, ⌛ if none failed and some are pending, ✅ if all passed, and ⚠️ if the status could not be loaded.
+If a branch's remote branch has an open pull request on GitHub, an icon shows the status of its checks: ❌ if any check failed, ⌛ if none failed and some are pending, and ✅ if all passed.
+
+After the check icon, a second icon shows the status of its reviews. A review does not count if it was dismissed, or if its reviewer was asked to review again (except for 🚧). Only the first icon in this list that matches shows:
+
+- 👍 if the pull request has the approvals that the branch rules need, and no approver was asked to review again. If the repository has no review rules, one approval and no change requests is enough.
+- 👎 if a reviewer requested changes.
+- 🚧 if GitHub still shows changes requested, but each reviewer who requested changes was asked to review again, and for each of them, a different reviewer approved after that. GitHub blocks the merge until the old reviews are dismissed.
+- 💬 if a review that only left comments (no approval or change request) has a thread that is not resolved. The thread stops counting if that reviewer later approves, or later has a review dismissed.
+
+If nothing matches, or the review status has not loaded, no review icon shows.
+
+If the latest load of the checks or the reviews failed, or GitHub reports a check state that git-graph-branch does not know, one ⚠️ shows after the icons. The other icons keep the last status that loaded. If nothing has loaded yet, only ⚠️ shows.
 
 This needs a token in an environment variable named after the first part of the GitHub domain: `GITHUB_TOKEN` for github.com, or `EXAMPLE_TOKEN` for example.com. git-graph-branch uses the `http.proxy` and `http.sslcainfo` settings from your git config.
 
-In watch mode, the graph shows before the status loads. Until then, 🔌 shows on each branch that has a GitHub remote. When the status loads, the status icon replaces 🔌, or nothing does if the branch has no open pull request. Without `--watch`, git-graph-branch waits for the status before it shows the graph.
+In watch mode, the graph shows before the status loads. Until then, 🔌 shows on each branch that has a GitHub remote. When the status loads, the check icon replaces 🔌, or nothing does if the branch has no open pull request. If the load fails, ⚠️ replaces 🔌. No review icon shows while loading. Without `--watch`, git-graph-branch waits for the status before it shows the graph.
 
-In watch mode, the status is checked every few seconds just after you push, and less often after that. In tmux, git-graph-branch does not check while its window is not visible. While it runs, it keeps a tmux session named `_git-graph-branch-<pid>`.
+In watch mode, the check status is checked every few seconds just after you push, and less often after that. The review status is checked every 5 minutes. In tmux, git-graph-branch does not check while its window is not visible. While it runs, it keeps a tmux session named `_git-graph-branch-<pid>`.
 
 ### Sample output
 
