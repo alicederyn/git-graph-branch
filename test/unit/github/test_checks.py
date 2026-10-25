@@ -10,17 +10,25 @@ from git_graph_branch.github.checks import (
     check_outcome,
     poll_interval,
 )
-from git_graph_branch.github.common import Outcome, combine
+from git_graph_branch.github.common import Outcome
 from git_graph_branch.github.loader import Pending, Result
+from git_graph_branch.github.remote import Repository
+
+REPOSITORY = Repository("github.com", "o", "n")
+NEW_PR_URL = "https://github.com/o/n/pull/new/b"
 
 
-def response(pr_state: str | None, *, base_has_checks: bool = True) -> dict[str, Any]:
+def response(
+    pr_state: str | None,
+    *,
+    base_has_checks: bool = True,
+) -> dict[str, Any]:
     """A response for a branch on a fork, whose default branch has no checks."""
     base_rollup = {"state": "SUCCESS"} if base_has_checks else None
     pr_rollup = {"state": pr_state} if pr_state else None
     return {
         "repository": {
-            "defaultBranchRef": {"target": {"statusCheckRollup": None}},
+            "defaultBranchRef": {"name": "main"},
             "ref": {
                 "associatedPullRequests": {
                     "nodes": [
@@ -42,8 +50,17 @@ def response(pr_state: str | None, *, base_has_checks: bool = True) -> dict[str,
 
 
 NO_PR: dict[str, Any] = {
-    "repository": {"ref": {"associatedPullRequests": {"nodes": []}}}
+    "repository": {
+        "defaultBranchRef": {"name": "main"},
+        "ref": {"associatedPullRequests": {"nodes": []}},
+    }
 }
+
+
+def outcome(
+    result: Result[dict[str, Any]] | Pending, branch: str = "b"
+) -> Outcome[CheckStatus]:
+    return check_outcome(result, REPOSITORY, branch)
 
 
 @pytest.mark.parametrize(
@@ -57,52 +74,48 @@ NO_PR: dict[str, Any] = {
     ],
 )
 def test_check_status_from_rollup_state(state: str, status: CheckStatus) -> None:
-    assert check_outcome(Result(response(state))) == Outcome(status)
+    assert outcome(Result(response(state))).status == status
+
+
+def test_no_pr_links_to_pr_creation() -> None:
+    assert outcome(Result(NO_PR)) == Outcome(url=NEW_PR_URL, has_pr=False)
+
+
+def test_default_branch_has_no_pr_creation_link() -> None:
+    assert outcome(Result(NO_PR), branch="main") == Outcome(has_pr=False)
 
 
 @pytest.mark.parametrize(
     "result",
-    [NO_PR, response(None), {"repository": None}, {"repository": {"ref": None}}],
-    ids=["no PR", "no checks", "no repository", "no remote branch"],
+    [{"repository": None}, {"repository": {"ref": None}}],
+    ids=["no repository", "no remote branch"],
 )
-def test_no_check_status(result: dict[str, Any]) -> None:
-    assert check_outcome(Result(result)) == Outcome()
+def test_no_pr_creation_link_without_the_remote_branch(
+    result: dict[str, Any],
+) -> None:
+    assert outcome(Result(result)) == Outcome(has_pr=False)
+
+
+def test_pr_with_no_checks_has_no_status() -> None:
+    assert outcome(Result(response(None))) == Outcome(has_pr=True)
 
 
 def test_failed_load_keeps_the_last_status() -> None:
     result = Result(response("SUCCESS"), TimeoutError())
 
-    assert check_outcome(result) == Outcome(CheckStatus.PASSED, failed=True)
+    assert outcome(result) == Outcome(CheckStatus.PASSED, failed=True, has_pr=True)
 
 
 def test_first_failed_load_has_no_status() -> None:
-    assert check_outcome(Result(None, TimeoutError())) == Outcome(failed=True)
+    assert outcome(Result(None, TimeoutError())) == Outcome(failed=True)
 
 
 def test_unknown_rollup_state_is_a_failure() -> None:
-    assert check_outcome(Result(response("NEW_STATE"))) == Outcome(failed=True)
+    assert outcome(Result(response("NEW_STATE"))) == Outcome(failed=True, has_pr=True)
 
 
 def test_pending_load_is_loading() -> None:
-    assert check_outcome(Pending.PENDING) == Outcome(CheckStatus.LOADING)
-
-
-@pytest.mark.parametrize(
-    "statuses, combined",
-    [
-        ([CheckStatus.PASSED, CheckStatus.FAILED], CheckStatus.FAILED),
-        ([CheckStatus.PASSED, CheckStatus.PENDING], CheckStatus.PENDING),
-        ([CheckStatus.FAILED, CheckStatus.LOADING], CheckStatus.FAILED),
-        ([CheckStatus.PENDING, CheckStatus.LOADING], CheckStatus.LOADING),
-        ([None, CheckStatus.PASSED], CheckStatus.PASSED),
-        ([None, None], None),
-        ([], None),
-    ],
-)
-def test_combine(
-    statuses: list[CheckStatus | None], combined: CheckStatus | None
-) -> None:
-    assert combine(statuses) == combined
+    assert outcome(Pending.PENDING) == Outcome(CheckStatus.LOADING)
 
 
 @pytest.mark.parametrize(
