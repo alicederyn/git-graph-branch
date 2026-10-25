@@ -166,7 +166,7 @@ def test_no_pr_has_no_review_status() -> None:
             Outcome(ReviewStatus.APPROVED, failed=True, url=PR_URL, has_pr=True),
         ),
         (Result(None, TimeoutError()), Outcome(failed=True)),
-        (Pending.PENDING, Outcome()),
+        (Pending.PENDING, Outcome(loading=True)),
         (Result(NO_PR), Outcome(has_pr=False)),
     ],
     ids=[

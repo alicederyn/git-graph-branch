@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from subprocess import check_call
 from textwrap import dedent
+from typing import Any
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
@@ -181,20 +182,42 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
     assert err == ""
 
 
+NO_PR = Outcome[Any](has_pr=False)
+LOADING = Outcome[Any](loading=True)
+FIRST_LOAD_FAILED = Outcome[Any](failed=True)
+
+
 @pytest.mark.usefixtures("repo")
 @pytest.mark.parametrize(
     "remote_commit, review, check, icons",
     [
-        (1, ReviewStatus.OPEN, CheckStatus.PASSED, "📭"),
-        (0, ReviewStatus.COMMENTED, CheckStatus.FAILED, "🔶💬❌"),
+        (1, NO_PR, NO_PR, "🔷"),
+        (1, Outcome(ReviewStatus.OPEN), Outcome(CheckStatus.PASSED), "📭"),
+        (0, Outcome(ReviewStatus.COMMENTED), Outcome(CheckStatus.FAILED), "🔶💬❌"),
+        (1, LOADING, LOADING, "🔌"),
+        (1, NO_PR, LOADING, "🔌"),
+        (1, LOADING, NO_PR, "🔌"),
+        (1, LOADING, Outcome(CheckStatus.FAILED), "🔌❌"),
+        (1, Outcome(ReviewStatus.OPEN), LOADING, "📭🔌"),
+        (1, FIRST_LOAD_FAILED, FIRST_LOAD_FAILED, "⚠️"),
     ],
-    ids=["in sync", "out of sync"],
+    ids=[
+        "no PR",
+        "open PR in sync",
+        "open PR out of sync",
+        "both loading",
+        "checks loading",
+        "reviews loading",
+        "reviews loading on an open PR",
+        "checks loading on an open PR",
+        "first load failed",
+    ],
 )
-async def test_open_pr_review_icon_replaces_in_sync_icon(
+async def test_in_sync_icon_shows_only_if_there_is_no_pr(
     capsys: pytest.CaptureFixture[str],
     remote_commit: int,
-    review: ReviewStatus,
-    check: CheckStatus,
+    review: Outcome[ReviewStatus],
+    check: Outcome[CheckStatus],
     icons: str,
 ) -> None:
     config_setup()
@@ -203,15 +226,27 @@ async def test_open_pr_review_icon_replaces_in_sync_icon(
     git_remote_repo("origin", feature=commits[remote_commit])
 
     with (
-        patch.object(
-            display, "pr_check_status", new=AsyncMock(return_value=Outcome(check))
-        ),
-        patch.object(
-            display, "pr_review_status", new=AsyncMock(return_value=Outcome(review))
-        ),
+        patch.object(display, "pr_check_status", new=AsyncMock(return_value=check)),
+        patch.object(display, "pr_review_status", new=AsyncMock(return_value=review)),
     ):
         await amain(["--remote-icons", "--pr-icons"])
 
     out, err = capsys.readouterr()
     assert f"feature {icons}\r\n" in out
+    assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+async def test_in_sync_icon_shows_for_a_remote_not_on_github(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_setup()
+    commit = git_test_commit()
+    check_call(["git", "branch", "feature"])
+    git_remote_repo("origin", feature=commit)
+
+    await amain(["--remote-icons", "--pr-icons"])
+
+    out, err = capsys.readouterr()
+    assert "feature 🔷\r\n" in out
     assert err == ""

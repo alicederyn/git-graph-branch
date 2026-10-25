@@ -12,7 +12,6 @@ from .remote import Repository, github_repository, new_pr_url, pr_remote_branch
 
 class CheckStatus(Enum):
     FAILED = "❌"
-    LOADING = "🔌"
     PENDING = "⌛"
     PASSED = ""
 
@@ -104,7 +103,7 @@ def check_outcome(
     adds later is not known, and counts as a failure.
     """
     if result is Pending.PENDING:
-        return Outcome(CheckStatus.LOADING)
+        return Outcome(loading=True)
     failed = result.error is not None
     data = result.state
     if data is None:
@@ -147,14 +146,14 @@ async def load_pr_checks(
 async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]:
     """The check status of the branch's open PR.
 
-    If wait is false, a status that has not loaded is LOADING.
+    If wait is false, a status that has not loaded is loading.
     """
     remote = pr_remote_branch(branch)
     if remote is None:
-        return Outcome()
+        return Outcome(has_pr=False)
     found = github_repository(remote.remote)
     if found is None:
-        return Outcome()
+        return Outcome(has_pr=False)
     github, repository = found
     result = await load(
         github,

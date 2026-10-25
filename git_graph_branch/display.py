@@ -43,6 +43,10 @@ class PrStatus(NamedTuple):
     review_url: str | None = None
     new_pr_url: str | None = None
     """Where to create a PR, once both statuses have loaded with no PR."""
+    has_pr: bool | None = None
+    """False if both statuses say the branch has no PR, else None if either is not known."""
+    review_loading: bool = False
+    check_loading: bool = False
 
 
 class Frame(NamedTuple):
@@ -111,17 +115,26 @@ def icon(text: str, url: str | None) -> OneStyleAndTextTuple:
 
 
 def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> StyleAndTextTuples:
-    """The push and PR status icons, with the review icon in place of 🔷 if a PR is open."""
+    """The push and PR status icons.
+
+    🔷 shows only if the branch has no PR, as the review icon takes its place.
+    🔌 takes the place of the first status that has not loaded.
+    """
     icons: StyleAndTextTuples = []
     if config.remote_icons:
         sync_status = remote_sync_status(b)
-        if sync_status != SyncStatus.NO_REMOTE and not (
-            sync_status == SyncStatus.IN_SYNC and pr_status.review
+        if sync_status == SyncStatus.OUT_OF_SYNC or (
+            sync_status == SyncStatus.IN_SYNC and pr_status.has_pr is False
         ):
             icons.append(icon(SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url))
-    if pr_status.review:
+    if pr_status.review_loading:
+        icons.append(("", "🔌"))
+    elif pr_status.review:
         icons.append(icon(pr_status.review.value, pr_status.review_url))
-    if pr_status.check:
+    if pr_status.check_loading:
+        if not pr_status.review_loading:
+            icons.append(("", "🔌"))
+    elif pr_status.check:
         icons.append(("", pr_status.check.value))
     if pr_status.failed:
         icons.append(("", "⚠️"))
@@ -159,12 +172,15 @@ async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
         check.failed or review.failed,
         review.url,
         check.url if has_no_pr else None,
+        False if has_no_pr else None,
+        review.loading,
+        check.loading,
     )
 
 
 async def pr_statuses(config: Config, branches: list[Branch]) -> list[PrStatus]:
     if not config.pr_icons:
-        return [PrStatus()] * len(branches)
+        return [PrStatus(has_pr=False)] * len(branches)
     return await asyncio.gather(
         *(pr_status(b, wait=not config.watch) for b in branches)
     )

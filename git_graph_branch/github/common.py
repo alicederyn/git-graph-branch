@@ -24,4 +24,10 @@ class Outcome[E: Enum](NamedTuple):
     url: str | None = None
     """Where the status icon links, from the last load that did not fail."""
     has_pr: bool | None = None
-    """Whether the branch has an open PR, or None if no load has succeeded."""
+    """Whether the branch has an open PR, or None if no load has succeeded.
+
+    False if the branch cannot have one: it has no remote branch on GitHub with
+    a token.
+    """
+    loading: bool = False
+    """Whether the status is not loaded yet, as the caller did not wait."""
