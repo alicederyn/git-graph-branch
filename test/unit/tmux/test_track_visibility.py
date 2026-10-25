@@ -65,8 +65,11 @@ async def test_queries_viewers_after_visibility_notifications(
         "FAKE_TMUX_NOTIFICATIONS", "%window-add @6;%client-detached /dev/pts/0"
     )
     visible = RecordingEvent()
+    hidden: list[bool] = []
 
-    task = asyncio.create_task(track_visibility("/tmp/socket", "%3", visible))
+    task = asyncio.create_task(
+        track_visibility("/tmp/socket", "%3", visible, lambda: hidden.append(True))
+    )
     for _ in range(100):
         if visible.history == [True, False]:
             break
@@ -75,6 +78,7 @@ async def test_queries_viewers_after_visibility_notifications(
     await asyncio.gather(task, return_exceptions=True)
 
     assert visible.history == [True, False, True]
+    assert hidden == [True]
     commands = log.read_text().splitlines()
     assert commands[0].startswith("-S /tmp/socket -C new-session -s _git-graph-branch-")
     assert sum(c.startswith("display-message -p -t %3 ") for c in commands) == 2
