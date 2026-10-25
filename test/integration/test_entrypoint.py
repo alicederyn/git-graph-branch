@@ -168,8 +168,8 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
 ) -> None:
     git_test_commit()
     check_call(["git", "branch", "feature"])
-    check = Outcome(CheckStatus.PASSED, failed=True)
-    review = Outcome(ReviewStatus.APPROVED, failed=True)
+    check = Outcome(CheckStatus.PASSED, error="TimeoutError")
+    review = Outcome(ReviewStatus.APPROVED, error="TimeoutError")
 
     with (
         patch.object(display, "pr_check_status", new=AsyncMock(return_value=check)),
@@ -184,7 +184,7 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
 
 NO_PR = Outcome[Any](has_pr=False)
 LOADING = Outcome[Any](loading=True)
-FIRST_LOAD_FAILED = Outcome[Any](failed=True)
+FIRST_LOAD_FAILED = Outcome[Any](error="TimeoutError")
 
 
 @pytest.mark.usefixtures("repo")

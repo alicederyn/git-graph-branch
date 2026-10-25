@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
@@ -6,7 +7,8 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 
 from git_graph_branch.display import Frame
-from git_graph_branch.ui import RowsControl
+from git_graph_branch.links import Icon
+from git_graph_branch.ui import RowsControl, padded_tooltip
 
 if TYPE_CHECKING:
     from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
@@ -159,3 +161,86 @@ def test_a_click_off_a_link_is_left_to_the_window(position: MouseEvent) -> None:
     control.create_content(WIDTH, 2)
 
     assert control.mouse_handler(position) is NotImplemented
+
+
+DELAY = 0.01
+
+
+def move(x: int, y: int = 0) -> MouseEvent:
+    return MouseEvent(
+        position=Point(x=x, y=y),
+        event_type=MouseEventType.MOUSE_MOVE,
+        button=MouseButton.NONE,
+        modifiers=frozenset(),
+    )
+
+
+def tooltip_frame(*tooltips: str) -> Frame:
+    return Frame(
+        [[("", "branch "), *(("", "👍", Icon(tooltip=t)) for t in tooltips)]], 0
+    )
+
+
+def hovering_control(frame: Frame) -> RowsControl:
+    control = RowsControl(tooltip_delay=DELAY)
+    control.frame = frame
+    control.create_content(WIDTH, 1)
+    control.mouse_handler(move(LINK_X))
+    return control
+
+
+async def test_a_tooltip_shows_at_the_pointer_after_the_delay() -> None:
+    control = hovering_control(tooltip_frame("tip"))
+    assert control.tooltip is None
+
+    await asyncio.sleep(DELAY * 5)
+
+    assert control.tooltip == "tip"
+    assert control.create_content(WIDTH, 1).menu_position == Point(x=LINK_X, y=0)
+
+
+async def test_a_move_inside_the_icon_keeps_the_delay() -> None:
+    control = hovering_control(tooltip_frame("tip"))
+    timer = control.tooltip_timer
+
+    control.mouse_handler(move(LINK_X))
+
+    assert control.tooltip_timer is timer
+
+
+@pytest.mark.parametrize(
+    "position", [move(0), move(LINK_X + 1)], ids=["off the icon", "to another icon"]
+)
+async def test_a_move_off_the_icon_hides_the_tooltip(position: MouseEvent) -> None:
+    control = hovering_control(tooltip_frame("tip", "other"))
+    await asyncio.sleep(DELAY * 5)
+
+    control.mouse_handler(position)
+
+    assert control.tooltip is None
+
+
+async def test_a_new_frame_shows_the_tooltip_now_under_the_pointer() -> None:
+    control = hovering_control(tooltip_frame("tip"))
+    await asyncio.sleep(DELAY * 5)
+
+    control.frame = tooltip_frame("new tip")
+    control.create_content(WIDTH, 1)
+
+    assert control.tooltip == "new tip"
+
+
+async def test_a_new_frame_with_no_icon_under_the_pointer_hides_the_tooltip() -> None:
+    control = hovering_control(tooltip_frame("tip"))
+    await asyncio.sleep(DELAY * 5)
+
+    control.frame = frame(rows=1, head=0)
+    control.create_content(WIDTH, 1)
+
+    assert control.tooltip is None
+
+
+def test_a_tooltip_wraps_between_words_to_fit_the_window() -> None:
+    assert padded_tooltip("origin: 2 ahead\nupstream: 1 behind", 12) == (
+        " origin: 2 \n ahead \n upstream: \n 1 behind "
+    )

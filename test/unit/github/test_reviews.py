@@ -21,6 +21,7 @@ from git_graph_branch.github.reviews import (
     poll_interval,
     review_outcome,
     review_status,
+    review_tooltip,
 )
 
 T0 = datetime(2026, 10, 1)
@@ -43,7 +44,7 @@ def reviews(
     opinionated: tuple[Review, ...] = (),
     requested: frozenset[str] = frozenset(),
     requested_at: tuple[tuple[str, datetime], ...] = (),
-    unresolved: frozenset[Review] = frozenset(),
+    unresolved: tuple[Review, ...] = (),
 ) -> Reviews:
     return Reviews(
         "PR",
@@ -84,14 +85,14 @@ def reviews(
             ReviewStatus.AWAITING_DISMISSAL,
         ),
         (
-            reviews(unresolved=frozenset({comment("cat")})),
+            reviews(unresolved=(comment("cat"),)),
             ReviewStatus.COMMENTED,
         ),
         (
             reviews(
                 "REVIEW_REQUIRED",
                 (opinion("cat", "APPROVED", T0),),
-                unresolved=frozenset({comment("cat", LATER)}),
+                unresolved=(comment("cat", LATER),),
             ),
             ReviewStatus.COMMENTED,
         ),
@@ -127,17 +128,17 @@ def test_review_status(state: Reviews, status: ReviewStatus) -> None:
         ),
         reviews(
             requested=frozenset({"cat"}),
-            unresolved=frozenset({comment("cat")}),
+            unresolved=(comment("cat"),),
         ),
         reviews(
             "REVIEW_REQUIRED",
             (opinion("cat", "APPROVED", LATER),),
-            unresolved=frozenset({comment("cat", T0)}),
+            unresolved=(comment("cat", T0),),
         ),
         reviews(
             "REVIEW_REQUIRED",
             (opinion("cat", "DISMISSED", LATER),),
-            unresolved=frozenset({comment("cat", T0)}),
+            unresolved=(comment("cat", T0),),
         ),
     ],
     ids=[
@@ -163,9 +164,15 @@ def test_no_pr_has_no_review_status() -> None:
     [
         (
             Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), TimeoutError()),
-            Outcome(ReviewStatus.APPROVED, failed=True, url=PR_URL, has_pr=True),
+            Outcome(
+                ReviewStatus.APPROVED,
+                "TimeoutError",
+                PR_URL,
+                has_pr=True,
+                tooltip="Approved by ann",
+            ),
         ),
-        (Result(None, TimeoutError()), Outcome(failed=True)),
+        (Result(None, TimeoutError()), Outcome(error="TimeoutError")),
         (Pending.PENDING, Outcome(loading=True)),
         (Result(NO_PR), Outcome(has_pr=False)),
     ],
@@ -182,6 +189,60 @@ def test_review_outcome(
     assert review_outcome(result) == outcome
 
 
+@pytest.mark.parametrize(
+    "state, tooltip",
+    [
+        (
+            reviews(
+                "APPROVED", (opinion("bob", "APPROVED"), opinion("ann", "APPROVED"))
+            ),
+            "Approved by ann, bob",
+        ),
+        (
+            reviews(opinionated=(opinion("ann", "CHANGES_REQUESTED"),)),
+            "Changes requested by ann",
+        ),
+        (
+            reviews(
+                "CHANGES_REQUESTED",
+                (
+                    opinion("ann", "CHANGES_REQUESTED"),
+                    opinion("bob", "APPROVED", LATER),
+                ),
+                requested=frozenset({"ann"}),
+                requested_at=(("ann", T0),),
+            ),
+            "Undismissed blocking review by ann",
+        ),
+        (
+            reviews(unresolved=(comment("cat"), comment("cat"))),
+            "2 unresolved threads",
+        ),
+        (
+            reviews(
+                requested=frozenset({"bob", "ann"}),
+                requested_at=(("ann", T0), ("bob", T0), ("ann", LATER)),
+            ),
+            "Awaiting ann, bob (2d)",
+        ),
+        (reviews(), "No reviewers requested"),
+    ],
+    ids=[
+        "approved",
+        "changes requested",
+        "awaiting dismissal",
+        "threads from one review",
+        "awaiting since the oldest request",
+        "no reviewers",
+    ],
+)
+def test_review_tooltip(state: Reviews, tooltip: str) -> None:
+    status = review_status(state)
+    assert status is not None
+
+    assert review_tooltip(state, status, T0 + timedelta(days=2)) == tooltip
+
+
 def test_changes_requested_links_to_the_latest_change_request() -> None:
     state = reviews(
         "CHANGES_REQUESTED",
@@ -196,16 +257,14 @@ def test_changes_requested_links_to_the_latest_change_request() -> None:
 
 def test_comments_link_to_the_oldest_review_with_an_unresolved_comment() -> None:
     state = reviews(
-        unresolved=frozenset(
-            {comment("cat", LATER, url="cat"), comment("eve", T0, url="eve")}
-        )
+        unresolved=(comment("cat", LATER, url="cat"), comment("eve", T0, url="eve"))
     )
 
     assert review_outcome(Result(state)).url == "eve"
 
 
 def test_review_without_url_links_to_the_pr() -> None:
-    state = reviews(unresolved=frozenset({comment("cat")}))
+    state = reviews(unresolved=(comment("cat"),))
 
     assert review_outcome(Result(state)).url == PR_URL
 
@@ -305,7 +364,7 @@ async def test_load_reads_every_page() -> None:
     state = await load(github, None)
 
     assert state.opinionated == (Review("ann", "APPROVED", None, "ann"),)
-    assert state.unresolved == {Review("cat", "COMMENTED", None)}
+    assert state.unresolved == (Review("cat", "COMMENTED", None),)
     assert github.thread_pages == [(None, 10), ("t10", 2)]
 
 

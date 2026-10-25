@@ -1,4 +1,5 @@
-"""Links on icons, opened in the browser on Ctrl+left-click."""
+"""Icons that link to a page, opened in the browser on Ctrl+left-click, or show
+a tooltip on hover."""
 
 import webbrowser
 from dataclasses import dataclass
@@ -31,14 +32,19 @@ def open_in_background(url: str) -> None:
 
 
 @dataclass(frozen=True)
-class Link:
-    """The mouse handler of a fragment that links to url."""
+class Icon:
+    """The mouse handler of an icon fragment.
 
-    url: str
+    The tooltip is shown by RowsControl, as it needs the pointer position.
+    """
+
+    url: str | None = None
+    tooltip: str | None = None
 
     def __call__(self, mouse_event: MouseEvent) -> "NotImplementedOrNone":
         if (
-            mouse_event.event_type == MouseEventType.MOUSE_DOWN
+            self.url
+            and mouse_event.event_type == MouseEventType.MOUSE_DOWN
             and mouse_event.button == MouseButton.LEFT
             and MouseModifier.CONTROL in mouse_event.modifiers
         ):
