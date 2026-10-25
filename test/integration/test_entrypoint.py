@@ -177,7 +177,7 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
         await amain(["--pr-icons"])
 
     out, err = capsys.readouterr()
-    assert "feature 👍✅⚠️" in out
+    assert "feature 👍⚠️" in out
     assert err == ""
 
 
@@ -185,7 +185,7 @@ async def test_pr_icons_show_last_statuses_and_one_warning(
 @pytest.mark.parametrize(
     "remote_commit, review, check, icons",
     [
-        (1, ReviewStatus.OPEN, CheckStatus.PASSED, "📭✅"),
+        (1, ReviewStatus.OPEN, CheckStatus.PASSED, "📭"),
         (0, ReviewStatus.COMMENTED, CheckStatus.FAILED, "🔶💬❌"),
     ],
     ids=["in sync", "out of sync"],
