@@ -88,3 +88,13 @@ def endpoint(domain: str) -> Endpoint | None:
         proxy=proxy(domain, http),
         cafile=http.get("sslcainfo"),
     )
+
+
+def github_repository(remote: str) -> tuple[Endpoint, Repository] | None:
+    """The GraphQL endpoint and repository of a remote, if it is on GitHub and
+    there is a token for it."""
+    repository = remote_repository(remote)
+    if repository is None:
+        return None
+    github = endpoint(repository.domain)
+    return (github, repository) if github else None

@@ -45,7 +45,7 @@ def parse_args(args: Sequence[str] | None, *, is_tty: bool) -> Config:
         action="store_true",
         dest="pr_icons",
         default=defaults.pr_icons,
-        help="Display PR check status icon; defaults to true if the output is a TTY",
+        help="Display PR check and review status icons; defaults to true if the output is a TTY",
     )
     p.add_argument(
         "--no-pr-icons", action="store_false", dest="pr_icons", help=SUPPRESS
