@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 
 from ..git.branch import Branch
-from .common import Outcome, get
+from .common import Outcome, error_text, get
 from .loader import Fetch, Pending, Result, load
 from .remote import Repository, github_repository, new_pr_url, pr_remote_branch
 
@@ -104,19 +104,20 @@ def check_outcome(
     """
     if result is Pending.PENDING:
         return Outcome(loading=True)
-    failed = result.error is not None
+    error = error_text(result.error)
     data = result.state
     if data is None:
-        return Outcome(failed=failed)
+        return Outcome(error=error)
     pr_node = pr(data)
     if pr_node is None:
         return Outcome(
-            failed=failed, url=new_pr_link(data, repository, branch), has_pr=False
+            error=error, url=new_pr_link(data, repository, branch), has_pr=False
         )
     state = pr_rollup_state(data)
-    unknown = state is not None and state not in ROLLUP_STATUS
+    if error is None and state is not None and state not in ROLLUP_STATUS:
+        error = f"Unknown check state {state}"
     status = ROLLUP_STATUS.get(state) if state else None
-    return Outcome(status, failed or unknown, has_pr=True)
+    return Outcome(status, error, has_pr=True)
 
 
 def poll_interval(result: Result[dict[str, Any]], age: float) -> float:

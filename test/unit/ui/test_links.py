@@ -10,7 +10,7 @@ from prompt_toolkit.mouse_events import (
     MouseModifier,
 )
 
-from git_graph_branch.links import Link
+from git_graph_branch.links import Icon
 
 
 @pytest.fixture(autouse=True)
@@ -29,10 +29,17 @@ def click(*modifiers: MouseModifier) -> MouseEvent:
 
 
 def test_ctrl_click_opens_the_link(open_in_background: MagicMock) -> None:
-    assert Link("https://x")(click(MouseModifier.CONTROL)) is None
+    assert Icon("https://x")(click(MouseModifier.CONTROL)) is None
     open_in_background.assert_called_once_with("https://x")
 
 
 def test_plain_click_does_not_open_the_link(open_in_background: MagicMock) -> None:
-    assert Link("https://x")(click()) is NotImplemented
+    assert Icon("https://x")(click()) is NotImplemented
+    open_in_background.assert_not_called()
+
+
+def test_ctrl_click_without_a_url_is_left_to_the_window(
+    open_in_background: MagicMock,
+) -> None:
+    assert Icon(tooltip="tip")(click(MouseModifier.CONTROL)) is NotImplemented
     open_in_background.assert_not_called()

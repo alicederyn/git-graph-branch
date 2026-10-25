@@ -12,7 +12,7 @@ from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
 from .github import CheckStatus, ReviewStatus, pr_check_status, pr_review_status
-from .links import Link
+from .links import Icon
 
 
 class Config(Namespace):
@@ -38,8 +38,8 @@ class Config(Namespace):
 class PrStatus(NamedTuple):
     check: CheckStatus | None = None
     review: ReviewStatus | None = None
-    failed: bool = False
-    """Whether the latest load of either status failed."""
+    error: str | None = None
+    """Why the latest load of either status failed, if one did."""
     review_url: str | None = None
     new_pr_url: str | None = None
     """Where to create a PR, once both statuses have loaded with no PR."""
@@ -47,6 +47,7 @@ class PrStatus(NamedTuple):
     """False if both statuses say the branch has no PR, else None if either is not known."""
     review_loading: bool = False
     check_loading: bool = False
+    review_tooltip: str | None = None
 
 
 class Frame(NamedTuple):
@@ -93,6 +94,26 @@ def remote_sync_status(b: Branch) -> SyncStatus:
     return SyncStatus.IN_SYNC if has_remote else SyncStatus.NO_REMOTE
 
 
+def remote_tooltip(b: Branch, remote: RemoteBranch) -> str | None:
+    ahead = sum(1 for _ in unmerged_commits(remote.commit, b.commit))
+    behind = sum(1 for _ in unmerged_commits(b.commit, remote.commit))
+    counts = [
+        f"{n} {direction}"
+        for n, direction in ((ahead, "ahead"), (behind, "behind"))
+        if n
+    ]
+    return f"{remote.remote}: {', '.join(counts)}" if counts else None
+
+
+def sync_tooltip(b: Branch) -> str | None:
+    """How many commits the branch is ahead of and behind each of its remotes."""
+    remotes = [r for r in (b.upstream, b.downstream) if isinstance(r, RemoteBranch)]
+    lines = [
+        line for remote in dict.fromkeys(remotes) if (line := remote_tooltip(b, remote))
+    ]
+    return "\n".join(lines) or None
+
+
 def compute_unmerged(b: Branch, parents: Iterable[Branch]) -> int:
     parent_commits = [p.commit for p in parents]
     return sum(1 for _ in unmerged_commits(b.commit, *parent_commits))
@@ -110,8 +131,13 @@ def branch_style(b: Branch) -> str:
     return ""
 
 
-def icon(text: str, url: str | None) -> OneStyleAndTextTuple:
-    return ("", text, Link(url)) if url else ("", text)
+LOADING_TOOLTIP = "Loading PR status…"
+
+
+def icon(
+    text: str, url: str | None = None, tooltip: str | None = None
+) -> OneStyleAndTextTuple:
+    return ("", text, Icon(url, tooltip)) if url or tooltip else ("", text)
 
 
 def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> StyleAndTextTuples:
@@ -123,21 +149,27 @@ def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> StyleAndText
     icons: StyleAndTextTuples = []
     if config.remote_icons:
         sync_status = remote_sync_status(b)
-        if sync_status == SyncStatus.OUT_OF_SYNC or (
-            sync_status == SyncStatus.IN_SYNC and pr_status.has_pr is False
-        ):
+        if sync_status == SyncStatus.OUT_OF_SYNC:
+            icons.append(
+                icon(
+                    SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url, sync_tooltip(b)
+                )
+            )
+        elif sync_status == SyncStatus.IN_SYNC and pr_status.has_pr is False:
             icons.append(icon(SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url))
     if pr_status.review_loading:
-        icons.append(("", "🔌"))
+        icons.append(icon("🔌", tooltip=LOADING_TOOLTIP))
     elif pr_status.review:
-        icons.append(icon(pr_status.review.value, pr_status.review_url))
+        icons.append(
+            icon(pr_status.review.value, pr_status.review_url, pr_status.review_tooltip)
+        )
     if pr_status.check_loading:
         if not pr_status.review_loading:
-            icons.append(("", "🔌"))
+            icons.append(icon("🔌", tooltip=LOADING_TOOLTIP))
     elif pr_status.check:
         icons.append(("", pr_status.check.value))
-    if pr_status.failed:
-        icons.append(("", "⚠️"))
+    if pr_status.error:
+        icons.append(icon("⚠️", tooltip=pr_status.error))
     return icons
 
 
@@ -166,15 +198,17 @@ async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
         pr_check_status(branch, wait=wait), pr_review_status(branch, wait=wait)
     )
     has_no_pr = check.has_pr is False and review.has_pr is False
+    errors = dict.fromkeys(e for e in (review.error, check.error) if e)
     return PrStatus(
         check.status,
         review.status,
-        check.failed or review.failed,
+        "\n".join(errors) or None,
         review.url,
         check.url if has_no_pr else None,
         False if has_no_pr else None,
         review.loading,
         check.loading,
+        review.tooltip,
     )
 
 
