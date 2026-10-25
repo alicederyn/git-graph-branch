@@ -74,7 +74,6 @@ class Key:
     endpoint: Endpoint
     load_function: Callable[..., Awaitable[Any]]
     args: tuple[Hashable, ...]
-    version: Hashable
 
 
 @dataclass(eq=False)
@@ -84,6 +83,7 @@ class Entry:
     result: asyncio.Future[Any]
     first_loaded_at: float
     poll_policy: PollPolicy[Any]
+    version: Hashable
     latest: Result[Any] | None = None
     next_poll_at: float = inf
     served_pending: bool = False
@@ -143,18 +143,23 @@ async def load[S, *Ts](
 ) -> Result[S] | Pending:
     """Load a state with load_function(fetch, previous_state, *args).
 
-    Must be called in a nix report calculation. The args must be hashable. A
-    different version gives a different state, even if the args are the same. If
-    the load function raises an exception, the result keeps the last state, with
-    the exception as its error.
+    Must be called in a nix report calculation. The args must be hashable. If the
+    load function raises an exception, the result keeps the last state, with the
+    exception as its error.
+
+    When the version changes, the state loads again at once, and the age that the
+    poll policy gets starts again from zero. Until the new state arrives, the load
+    gives the previous one.
 
     If wait is false, and the state has not loaded, return Pending; the load
     still runs, and its state nixes the calculation when it arrives.
     """
-    key = Key(endpoint, load_function, args, version)
+    key = Key(endpoint, load_function, args)
     entry = entries.get(key)
     if entry is None or entry.fact.nixed:
-        entry = add_entry(key, poll_policy, entry)
+        entry = add_entry(key, poll_policy, version, entry)
+    if entry.version != version:
+        restart(entry, version)
     entry.poll_policy = poll_policy
     entry.fact.record_use()
     if not wait and not entry.result.done():
@@ -163,10 +168,14 @@ async def load[S, *Ts](
     return await asyncio.shield(entry.result)
 
 
-def add_entry(key: Key, poll_policy: PollPolicy[Any], previous: Entry | None) -> Entry:
+def add_entry(
+    key: Key, poll_policy: PollPolicy[Any], version: Hashable, previous: Entry | None
+) -> Entry:
     loop = asyncio.get_running_loop()
     state = endpoint_state(key.endpoint)
-    entry = Entry(key, Fact(), loop.create_future(), loop.time(), poll_policy)
+    if previous is not None:
+        version = previous.version
+    entry = Entry(key, Fact(), loop.create_future(), loop.time(), poll_policy, version)
     entry.fact.on_moot(drop, entry)
     entries[key] = entry
     state.entries.add(entry)
@@ -179,6 +188,15 @@ def add_entry(key: Key, poll_policy: PollPolicy[Any], previous: Entry | None) ->
     else:
         enqueue(state, entry)
     return entry
+
+
+def restart(entry: Entry, version: Hashable) -> None:
+    """Load again at once, and poll as if the state was first loaded now."""
+    entry.version = version
+    entry.first_loaded_at = asyncio.get_running_loop().time()
+    if entry.next_poll_at != inf:
+        entry.next_poll_at = inf
+        enqueue(endpoint_state(entry.key.endpoint), entry)
 
 
 def endpoint_state(endpoint: Endpoint) -> EndpointState:
