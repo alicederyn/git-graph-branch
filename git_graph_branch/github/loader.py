@@ -33,6 +33,7 @@ TIMEOUT = 15.0
 MIN_BATCH_INTERVAL = 5.0
 RATE_LIMITED_INTERVAL = 300.0
 LOW_RATE_LIMIT = 100
+SECONDARY_RATE_LIMIT_STATUSES = {403, 429}
 
 type Response = dict[str, Any] | Exception
 type Fetch = Callable[[str, Mapping[str, Any]], Awaitable[dict[str, Any]]]
@@ -97,6 +98,8 @@ class EndpointState:
     last_started_at: float = -inf
     fetches: list[tuple[Query, asyncio.Future[Response]]] = field(default_factory=list)
     rate_limited_until: float = -inf
+    blocked_until: float = -inf
+    """No loads start before this time, after a secondary rate limit."""
     changed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -216,9 +219,8 @@ def start_task(coro: Coroutine[Any, Any, None]) -> None:
 async def dispatch(state: EndpointState) -> None:
     """Start the queued loads together, so that their fetches share requests."""
     loop = asyncio.get_running_loop()
-    await asyncio.sleep(
-        max(0.0, state.last_started_at + MIN_BATCH_INTERVAL - loop.time())
-    )
+    start_at = max(state.last_started_at + MIN_BATCH_INTERVAL, state.blocked_until)
+    await asyncio.sleep(max(0.0, start_at - loop.time()))
     batch = [entry for entry in state.queue if entry in state.entries]
     state.queue = []
     state.dispatch_scheduled = False
@@ -267,6 +269,10 @@ async def fetch(state: EndpointState, queries: Sequence[Query]) -> list[Response
         response, headers = await post(state.endpoint, body)
         note_rate_limit(state, headers)
         return merged.split(response)
+    except aiohttp.ClientResponseError as e:
+        if e.status in SECONDARY_RATE_LIMIT_STATUSES:
+            note_secondary_rate_limit(state, e.headers or {})
+        return [e] * len(queries)
     except Exception as e:
         return [e] * len(queries)
 
@@ -308,6 +314,24 @@ def note_rate_limit(state: EndpointState, headers: Mapping[str, str]) -> None:
     state.rate_limited_until = asyncio.get_running_loop().time() + seconds_to_reset
 
 
+def note_secondary_rate_limit(state: EndpointState, headers: Mapping[str, str]) -> None:
+    """Start no loads until GitHub allows them.
+
+    GitHub can ban a client that keeps sending requests while it is limited. It
+    sends retry-after, or x-ratelimit-reset if the hourly limit is used up.
+    """
+    if retry_after := headers.get("retry-after"):
+        seconds = float(retry_after)
+    elif headers.get("x-ratelimit-remaining") == "0" and (
+        reset := headers.get("x-ratelimit-reset")
+    ):
+        seconds = max(0.0, int(reset) - time.time())
+    else:
+        seconds = RATE_LIMITED_INTERVAL
+    blocked_until = asyncio.get_running_loop().time() + seconds
+    state.blocked_until = max(state.blocked_until, blocked_until)
+
+
 def same_error(a: Exception | None, b: Exception | None) -> bool:
     if a is None or b is None:
         return a is b
@@ -343,6 +367,7 @@ def schedule_poll(state: EndpointState, entry: Entry) -> None:
     delay = entry.poll_policy(entry.latest, now - entry.first_loaded_at)
     if now < state.rate_limited_until:
         delay = max(delay, RATE_LIMITED_INTERVAL)
+    delay = max(delay, state.blocked_until - now)
     entry.next_poll_at = now + delay
     state.changed.set()
 
