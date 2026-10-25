@@ -14,7 +14,7 @@ class CheckStatus(Enum):
     FAILED = "❌"
     LOADING = "🔌"
     PENDING = "⌛"
-    PASSED = "✅"
+    PASSED = ""
 
 
 ROLLUP_STATUS = {
