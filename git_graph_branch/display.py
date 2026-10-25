@@ -11,7 +11,7 @@ from .dag import NodeArt, layout
 from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
-from .github import CheckStatus, pr_check_status
+from .github import CheckStatus, ReviewStatus, pr_check_status, pr_review_status
 
 
 class Config(Namespace):
@@ -32,6 +32,13 @@ class Config(Namespace):
             "pr_icons": is_tty,
         }
         super().__init__(**(defaults | kwargs), is_tty=is_tty)
+
+
+class PrStatus(NamedTuple):
+    check: CheckStatus | None = None
+    review: ReviewStatus | None = None
+    failed: bool = False
+    """Whether the latest load of either status failed."""
 
 
 class Frame(NamedTuple):
@@ -101,7 +108,7 @@ def branch_fragments(
     config: Config,
     parents: Iterable[Branch],
     worktree_branches: set[str],
-    check_status: CheckStatus | None,
+    pr_status: PrStatus,
 ) -> StyleAndTextTuples:
     fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
     icons = []
@@ -109,8 +116,11 @@ def branch_fragments(
         icons.append("🌲")
     if config.remote_icons:
         icons.append(SYNC_STATUS_ICON[remote_sync_status(b)])
-    if check_status:
-        icons.append(check_status.value)
+    icons.extend(
+        status.value for status in (pr_status.check, pr_status.review) if status
+    )
+    if pr_status.failed:
+        icons.append("⚠️")
     if any(icons):
         fragments.append(("", " " + "".join(icons)))
     unmerged = compute_unmerged(b, parents)
@@ -119,13 +129,18 @@ def branch_fragments(
     return fragments
 
 
-async def check_statuses(
-    config: Config, branches: list[Branch]
-) -> list[CheckStatus | None]:
+async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
+    check, review = await asyncio.gather(
+        pr_check_status(branch, wait=wait), pr_review_status(branch, wait=wait)
+    )
+    return PrStatus(check.status, review.status, check.failed or review.failed)
+
+
+async def pr_statuses(config: Config, branches: list[Branch]) -> list[PrStatus]:
     if not config.pr_icons:
-        return [None] * len(branches)
+        return [PrStatus()] * len(branches)
     return await asyncio.gather(
-        *(pr_check_status(b, wait=not config.watch) for b in branches)
+        *(pr_status(b, wait=not config.watch) for b in branches)
     )
 
 
@@ -139,7 +154,7 @@ async def graph_frame(config: Config) -> Frame:
     dag = compute_branch_dag(list(branches()))
     art_and_branches = layout(dag, key=lambda b: (b.timestamp, b.name))
     wt_branches = worktree_branches()
-    statuses = await check_statuses(config, [b for _, b in art_and_branches])
+    statuses = await pr_statuses(config, [b for _, b in art_and_branches])
     rows = [
         branch_fragments(art, b, config, dag.parents(b), wt_branches, status)
         for (art, b), status in zip(art_and_branches, statuses)

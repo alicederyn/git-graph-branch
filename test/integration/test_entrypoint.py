@@ -2,12 +2,15 @@
 from datetime import datetime, timedelta
 from subprocess import check_call
 from textwrap import dedent
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from git_graph_branch import display
 from git_graph_branch.cli import amain
+from git_graph_branch.github import CheckStatus, ReviewStatus
+from git_graph_branch.github.common import Outcome
 
 from ..unit.git.utils import git_remote_repo, git_test_commit
 
@@ -155,4 +158,24 @@ async def test_adjacent_icons_have_no_space_between_them(
 
     out, err = capsys.readouterr()
     assert "feature 🌲🔷" in out
+    assert err == ""
+
+
+@pytest.mark.usefixtures("repo")
+async def test_pr_icons_show_last_statuses_and_one_warning(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    git_test_commit()
+    check_call(["git", "branch", "feature"])
+    check = Outcome(CheckStatus.PASSED, failed=True)
+    review = Outcome(ReviewStatus.APPROVED, failed=True)
+
+    with (
+        patch.object(display, "pr_check_status", new=AsyncMock(return_value=check)),
+        patch.object(display, "pr_review_status", new=AsyncMock(return_value=review)),
+    ):
+        await amain(["--pr-icons"])
+
+    out, err = capsys.readouterr()
+    assert "feature ✅👍⚠️" in out
     assert err == ""
