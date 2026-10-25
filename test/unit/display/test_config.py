@@ -39,6 +39,6 @@ async def test_no_pr_icons_loads_no_pr_statuses(
 
     statuses = await pr_statuses(config, [Mock(spec=Branch)])
 
-    assert statuses == [PrStatus()]
+    assert statuses == [PrStatus(has_pr=False)]
     pr_check_status.assert_not_called()
     pr_review_status.assert_not_called()
