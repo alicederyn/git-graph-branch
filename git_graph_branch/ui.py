@@ -32,7 +32,7 @@ from prompt_toolkit.styles import DummyStyle, Style
 
 from . import tmux
 from .display import Config, Frame
-from .links import Icon
+from .links import Icon, Opener
 from .viewport import Viewport
 
 if TYPE_CHECKING:
@@ -161,6 +161,7 @@ class RowsControl(UIControl):
         """The line and fragment index of the icon with a tooltip under the pointer."""
         self.tooltip_timer: asyncio.TimerHandle | None = None
         self.tooltip_shown = False
+        self.opener = Opener(lambda: get_app().invalidate())
 
     def create_content(self, width: int, height: int) -> UIContent:
         """The visible rows, each with a space after it, and lines of one space
@@ -171,7 +172,10 @@ class RowsControl(UIControl):
         the rows. The spaces make sure that these clicks do not find a link.
         """
         self.width = width
-        lines = [[*row, *END_OF_LINE] for row in self.visible_rows(height)]
+        lines = [
+            [*self.opener.spinning(row), *END_OF_LINE]
+            for row in self.visible_rows(height)
+        ]
         lines += [END_OF_LINE] * (height - len(lines))
         self.lines = lines
         self.hover()
@@ -281,7 +285,18 @@ class RowsControl(UIControl):
         index = fragment_at(row, position.x)
         if index is None or len(row[index]) < 3:
             return NotImplemented
-        return row[index][2](mouse_event)  # type: ignore[misc]
+        handler = row[index][2]  # type: ignore[misc]
+        if isinstance(handler, Icon):
+            return self.icon_mouse_handler(handler, mouse_event)
+        return handler(mouse_event)
+
+    def icon_mouse_handler(
+        self, icon: Icon, mouse_event: MouseEvent
+    ) -> "NotImplementedOrNone":
+        if icon.url and icon.opens_on(mouse_event):
+            self.opener.click(icon.url)
+            return None
+        return NotImplemented
 
 
 def scroll_key_bindings(control: RowsControl) -> KeyBindings:
@@ -397,6 +412,7 @@ async def show_watching(config: Config, refresh: Refresh) -> None:
         control.frame = frame
         app.invalidate()
 
+    control.opener.prewarm()
     # If refresh fails, the app is cancelled, so it restores the terminal
     async with (
         tmux.watch_window_visibility(on_hide=control.hide_tooltip),
