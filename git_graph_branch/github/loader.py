@@ -1,21 +1,20 @@
-"""The GraphQL loader (ADRs 3–5).
+"""The GraphQL loader (ADRs 3–5, 7).
 
-Queries that start in the same event-loop tick are merged into one request. Each
-result is a Fact. In watch mode, a background task polls each result again, at the
-interval its poll policy gives, and nixes the result when it changes. A query that
-does not wait gets Pending until its first result arrives, which nixes it.
+A component loads data with a load function, which calls `fetch` once for each
+GraphQL document it needs. Fetches that start in the same event-loop tick are
+merged into one request. Each state that a load function returns is a Fact. In
+watch mode, a background task polls each state again, at the interval its poll
+policy gives, and nixes the state when it changes. A load that does not wait gets
+Pending until its first state arrives, which nixes it.
 
 The background task cannot read the filesystem (nix forbids it), so everything that
 comes from git config or the environment is in the Endpoint.
 """
 
-from __future__ import annotations
-
 import asyncio
-import json
 import ssl
 import time
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Hashable, Mapping, Sequence
 from contextlib import suppress
 from contextvars import Context
 from dataclasses import dataclass, field
@@ -35,14 +34,30 @@ MIN_BATCH_INTERVAL = 5.0
 RATE_LIMITED_INTERVAL = 300.0
 LOW_RATE_LIMIT = 100
 
-type Result = dict[str, Any] | Exception
-type PollPolicy = Callable[[Result, float], float]
-"""Seconds until the next poll, from the latest result and the seconds since the
-query was first loaded."""
+type Response = dict[str, Any] | Exception
+type Fetch = Callable[[str, Mapping[str, Any]], Awaitable[dict[str, Any]]]
+"""Send a GraphQL document with its variables, and return its data.
+
+Raises QueryError if GitHub returns errors for the document."""
+type LoadFunction[S, *Ts] = Callable[[Fetch, S | None, *Ts], Awaitable[S]]
+"""Load a new state, from the state of the last load that did not fail."""
 
 
 class Pending(Enum):
     PENDING = auto()
+
+
+@dataclass(frozen=True)
+class Result[S]:
+    state: S | None
+    """The state of the last load that did not fail, or None if none has."""
+    error: Exception | None = None
+    """The error of the latest load, if it failed."""
+
+
+type PollPolicy[S] = Callable[[Result[S], float], float]
+"""Seconds until the next poll, from the latest result and the seconds since the
+state was first loaded."""
 
 
 @dataclass(frozen=True)
@@ -56,20 +71,19 @@ class Endpoint:
 @dataclass(frozen=True)
 class Key:
     endpoint: Endpoint
-    document: str
-    variables: str
+    load_function: Callable[..., Awaitable[Any]]
+    args: tuple[Hashable, ...]
     version: Hashable
 
 
 @dataclass(eq=False)
 class Entry:
     key: Key
-    query: Query
     fact: Fact
-    result: asyncio.Future[Result]
+    result: asyncio.Future[Any]
     first_loaded_at: float
-    poll_policy: PollPolicy
-    latest: Result | None = None
+    poll_policy: PollPolicy[Any]
+    latest: Result[Any] | None = None
     next_poll_at: float = inf
     served_pending: bool = False
 
@@ -80,61 +94,64 @@ class EndpointState:
     entries: set[Entry] = field(default_factory=set)
     queue: list[Entry] = field(default_factory=list)
     dispatch_scheduled: bool = False
-    last_sent_at: float = -inf
+    last_started_at: float = -inf
+    fetches: list[tuple[Query, asyncio.Future[Response]]] = field(default_factory=list)
     rate_limited_until: float = -inf
     changed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 entries: dict[Key, Entry] = {}
 endpoints: dict[Endpoint, EndpointState] = {}
-dispatch_tasks: set[asyncio.Task[None]] = set()
+tasks: set[asyncio.Task[None]] = set()
 
 
 @overload
-async def query(
+async def load[S, *Ts](
     endpoint: Endpoint,
-    document: str,
-    variables: Mapping[str, Any],
-    poll_policy: PollPolicy,
+    load_function: LoadFunction[S, *Ts],
+    args: tuple[*Ts],
+    poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
     wait: Literal[True] = True,
-) -> Result: ...
+) -> Result[S]: ...
 
 
 @overload
-async def query(
+async def load[S, *Ts](
     endpoint: Endpoint,
-    document: str,
-    variables: Mapping[str, Any],
-    poll_policy: PollPolicy,
+    load_function: LoadFunction[S, *Ts],
+    args: tuple[*Ts],
+    poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
     wait: bool,
-) -> Result | Pending: ...
+) -> Result[S] | Pending: ...
 
 
-async def query(
+async def load[S, *Ts](
     endpoint: Endpoint,
-    document: str,
-    variables: Mapping[str, Any],
-    poll_policy: PollPolicy,
+    load_function: LoadFunction[S, *Ts],
+    args: tuple[*Ts],
+    poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
     wait: bool = True,
-) -> Result | Pending:
-    """Load the result of a GraphQL query, as data or as an exception.
+) -> Result[S] | Pending:
+    """Load a state with load_function(fetch, previous_state, *args).
 
-    Must be called in a nix report calculation. A different version gives a
-    different result, even if the query is the same.
+    Must be called in a nix report calculation. The args must be hashable. A
+    different version gives a different state, even if the args are the same. If
+    the load function raises an exception, the result keeps the last state, with
+    the exception as its error.
 
-    If wait is false, and the result has not loaded, return Pending; the query
-    is still sent, and its result nixes the calculation when it arrives.
+    If wait is false, and the state has not loaded, return Pending; the load
+    still runs, and its state nixes the calculation when it arrives.
     """
-    key = Key(endpoint, document, json.dumps(variables, sort_keys=True), version)
+    key = Key(endpoint, load_function, args, version)
     entry = entries.get(key)
     if entry is None or entry.fact.nixed:
-        entry = add_entry(key, Query(document, variables), poll_policy, entry)
+        entry = add_entry(key, poll_policy, entry)
     entry.poll_policy = poll_policy
     entry.fact.record_use()
     if not wait and not entry.result.done():
@@ -143,12 +160,10 @@ async def query(
     return await asyncio.shield(entry.result)
 
 
-def add_entry(
-    key: Key, query: Query, poll_policy: PollPolicy, previous: Entry | None
-) -> Entry:
+def add_entry(key: Key, poll_policy: PollPolicy[Any], previous: Entry | None) -> Entry:
     loop = asyncio.get_running_loop()
     state = endpoint_state(key.endpoint)
-    entry = Entry(key, query, Fact(), loop.create_future(), loop.time(), poll_policy)
+    entry = Entry(key, Fact(), loop.create_future(), loop.time(), poll_policy)
     entry.fact.on_moot(drop, entry)
     entries[key] = entry
     state.entries.add(entry)
@@ -186,31 +201,66 @@ def enqueue(state: EndpointState, entry: Entry) -> None:
     state.queue.append(entry)
     if not state.dispatch_scheduled:
         state.dispatch_scheduled = True
-        # An empty context, so the request is not part of any nix calculation
-        asyncio.get_running_loop().call_soon(start_dispatch, state, context=Context())
+        # An empty context, so the loads are not part of any nix calculation
+        asyncio.get_running_loop().call_soon(
+            start_task, dispatch(state), context=Context()
+        )
 
 
-def start_dispatch(state: EndpointState) -> None:
-    task = asyncio.create_task(dispatch(state))
-    dispatch_tasks.add(task)
-    task.add_done_callback(dispatch_tasks.discard)
+def start_task(coro: Coroutine[Any, Any, None]) -> None:
+    task = asyncio.create_task(coro)
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
 
 
 async def dispatch(state: EndpointState) -> None:
+    """Start the queued loads together, so that their fetches share requests."""
     loop = asyncio.get_running_loop()
-    await asyncio.sleep(max(0.0, state.last_sent_at + MIN_BATCH_INTERVAL - loop.time()))
+    await asyncio.sleep(
+        max(0.0, state.last_started_at + MIN_BATCH_INTERVAL - loop.time())
+    )
     batch = [entry for entry in state.queue if entry in state.entries]
     state.queue = []
     state.dispatch_scheduled = False
     if not batch:
         return
-    state.last_sent_at = loop.time()
-    results = await fetch(state, [entry.query for entry in batch])
-    for entry, result in zip(batch, results):
-        deliver(state, entry, result)
+    state.last_started_at = loop.time()
+    await asyncio.gather(*(run_load(state, entry) for entry in batch))
 
 
-async def fetch(state: EndpointState, queries: Sequence[Query]) -> list[Result]:
+async def run_load(state: EndpointState, entry: Entry) -> None:
+    async def fetch(document: str, variables: Mapping[str, Any]) -> dict[str, Any]:
+        return await fetch_in_batch(state, Query(document, variables))
+
+    previous = entry.latest.state if entry.latest else None
+    try:
+        result = Result(await entry.key.load_function(fetch, previous, *entry.key.args))
+    except Exception as e:
+        result = Result(previous, e)
+    deliver(state, entry, result)
+
+
+async def fetch_in_batch(state: EndpointState, query: Query) -> dict[str, Any]:
+    future: asyncio.Future[Response] = asyncio.get_running_loop().create_future()
+    state.fetches.append((query, future))
+    if len(state.fetches) == 1:
+        asyncio.get_running_loop().call_soon(
+            start_task, send_fetches(state), context=Context()
+        )
+    response = await future
+    if isinstance(response, Exception):
+        raise response
+    return response
+
+
+async def send_fetches(state: EndpointState) -> None:
+    batch, state.fetches = state.fetches, []
+    responses = await fetch(state, [query for query, _ in batch])
+    for (_, future), response in zip(batch, responses):
+        future.set_result(response)
+
+
+async def fetch(state: EndpointState, queries: Sequence[Query]) -> list[Response]:
     try:
         merged = merge(queries)
         body = {"query": merged.document, "variables": merged.variables}
@@ -258,13 +308,17 @@ def note_rate_limit(state: EndpointState, headers: Mapping[str, str]) -> None:
     state.rate_limited_until = asyncio.get_running_loop().time() + seconds_to_reset
 
 
-def same(a: Result | None, b: Result | None) -> bool:
-    if isinstance(a, Exception) and isinstance(b, Exception):
-        return type(a) is type(b) and str(a) == str(b)
-    return a == b
+def same_error(a: Exception | None, b: Exception | None) -> bool:
+    if a is None or b is None:
+        return a is b
+    return type(a) is type(b) and str(a) == str(b)
 
 
-def deliver(state: EndpointState, entry: Entry, result: Result) -> None:
+def same(a: Result[Any], b: Result[Any] | None) -> bool:
+    return b is not None and a.state == b.state and same_error(a.error, b.error)
+
+
+def deliver(state: EndpointState, entry: Entry, result: Result[Any]) -> None:
     if not entry.result.done():
         entry.latest = result
         entry.result.set_result(result)
@@ -277,8 +331,8 @@ def deliver(state: EndpointState, entry: Entry, result: Result) -> None:
     schedule_poll(state, entry)
 
 
-def replace_result(entry: Entry, result: Result) -> None:
-    """Keep result for the next query, and nix the old result."""
+def replace_result(entry: Entry, result: Result[Any]) -> None:
+    """Keep result for the next load, and nix the old result."""
     entry.latest = result
     entry.fact.nix()
 
@@ -294,7 +348,7 @@ def schedule_poll(state: EndpointState, entry: Entry) -> None:
 
 
 async def poll(state: EndpointState) -> None:
-    """Send each query again when its poll is due, while the window is visible."""
+    """Run each load again when its poll is due, while the window is visible."""
     loop = asyncio.get_running_loop()
     while endpoints.get(state.endpoint) is state:
         state.changed.clear()

@@ -7,11 +7,11 @@ from git_graph_branch.github.checks import (
     MEDIUM_INTERVAL,
     SLOW_INTERVAL,
     CheckStatus,
-    check_status,
-    combine,
+    check_outcome,
     poll_interval,
 )
-from git_graph_branch.github.loader import Pending
+from git_graph_branch.github.common import Outcome, combine
+from git_graph_branch.github.loader import Pending, Result
 
 
 def response(pr_state: str | None, *, base_has_checks: bool = True) -> dict[str, Any]:
@@ -57,7 +57,7 @@ NO_PR: dict[str, Any] = {
     ],
 )
 def test_check_status_from_rollup_state(state: str, status: CheckStatus) -> None:
-    assert check_status(response(state)) == status
+    assert check_outcome(Result(response(state))) == Outcome(status)
 
 
 @pytest.mark.parametrize(
@@ -66,23 +66,31 @@ def test_check_status_from_rollup_state(state: str, status: CheckStatus) -> None
     ids=["no PR", "no checks", "no repository", "no remote branch"],
 )
 def test_no_check_status(result: dict[str, Any]) -> None:
-    assert check_status(result) is None
+    assert check_outcome(Result(result)) == Outcome()
 
 
-def test_failed_load_is_unknown() -> None:
-    assert check_status(TimeoutError()) == CheckStatus.UNKNOWN
+def test_failed_load_keeps_the_last_status() -> None:
+    result = Result(response("SUCCESS"), TimeoutError())
+
+    assert check_outcome(result) == Outcome(CheckStatus.PASSED, failed=True)
+
+
+def test_first_failed_load_has_no_status() -> None:
+    assert check_outcome(Result(None, TimeoutError())) == Outcome(failed=True)
+
+
+def test_unknown_rollup_state_is_a_failure() -> None:
+    assert check_outcome(Result(response("NEW_STATE"))) == Outcome(failed=True)
 
 
 def test_pending_load_is_loading() -> None:
-    assert check_status(Pending.PENDING) == CheckStatus.LOADING
+    assert check_outcome(Pending.PENDING) == Outcome(CheckStatus.LOADING)
 
 
 @pytest.mark.parametrize(
     "statuses, combined",
     [
         ([CheckStatus.PASSED, CheckStatus.FAILED], CheckStatus.FAILED),
-        ([CheckStatus.FAILED, CheckStatus.UNKNOWN], CheckStatus.FAILED),
-        ([CheckStatus.PENDING, CheckStatus.UNKNOWN], CheckStatus.UNKNOWN),
         ([CheckStatus.PASSED, CheckStatus.PENDING], CheckStatus.PENDING),
         ([CheckStatus.FAILED, CheckStatus.LOADING], CheckStatus.FAILED),
         ([CheckStatus.PENDING, CheckStatus.LOADING], CheckStatus.LOADING),
@@ -100,12 +108,12 @@ def test_combine(
 @pytest.mark.parametrize(
     "result, age, interval",
     [
-        (response("SUCCESS"), 0, FAST_INTERVAL),
-        (response("SUCCESS"), 600, SLOW_INTERVAL),
-        (response("PENDING"), 600, MEDIUM_INTERVAL),
-        (NO_PR, 600, SLOW_INTERVAL),
-        (response(None, base_has_checks=False), 0, SLOW_INTERVAL),
-        (TimeoutError(), 0, MEDIUM_INTERVAL),
+        (Result(response("SUCCESS")), 0, FAST_INTERVAL),
+        (Result(response("SUCCESS")), 600, SLOW_INTERVAL),
+        (Result(response("PENDING")), 600, MEDIUM_INTERVAL),
+        (Result(NO_PR), 600, SLOW_INTERVAL),
+        (Result(response(None, base_has_checks=False)), 0, SLOW_INTERVAL),
+        (Result(response("SUCCESS"), TimeoutError()), 0, MEDIUM_INTERVAL),
     ],
     ids=[
         "just pushed",
@@ -116,5 +124,7 @@ def test_combine(
         "failed load",
     ],
 )
-def test_poll_interval(result: Any, age: float, interval: float) -> None:
+def test_poll_interval(
+    result: Result[dict[str, Any]], age: float, interval: float
+) -> None:
     assert poll_interval(result, age) == interval
