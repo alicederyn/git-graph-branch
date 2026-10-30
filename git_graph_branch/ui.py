@@ -5,9 +5,9 @@ import os
 import shutil
 import sys
 import textwrap
-from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
-from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit import Application, print_formatted_text
 from prompt_toolkit.application import get_app
@@ -403,6 +403,33 @@ async def background_task(
             task.cancel()
 
 
+@contextmanager
+def exit_on_loop_exception(app: Application[None]) -> Iterator[None]:
+    """Exit app with the first exception that no task or callback handles.
+
+    prompt_toolkit's own handler prints each one over the app and waits for
+    ENTER, so a repeated exception loops between printing and redrawing, and
+    takes every key.
+    """
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+
+    def handle(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        if app.future is None or app.future.done():
+            loop.default_exception_handler(context)
+            return
+        exception = context.get("exception")
+        if not isinstance(exception, Exception):
+            exception = RuntimeError(context["message"])
+        app.exit(exception=exception)
+
+    loop.set_exception_handler(handle)
+    try:
+        yield
+    finally:
+        loop.set_exception_handler(previous)
+
+
 async def show_watching(config: Config, refresh: Refresh) -> None:
     """Display the rows full-screen, redrawing as each refresh arrives."""
     control = RowsControl()
@@ -418,5 +445,6 @@ async def show_watching(config: Config, refresh: Refresh) -> None:
         tmux.watch_window_visibility(on_hide=control.hide_tooltip),
         background_task(refresh(show)),
     ):
-        # SIGINT and SIGTERM stay with cli.handle_signals
-        await app.run_async(handle_sigint=False)
+        with exit_on_loop_exception(app):
+            # SIGINT and SIGTERM stay with cli.handle_signals
+            await app.run_async(handle_sigint=False, set_exception_handler=False)
