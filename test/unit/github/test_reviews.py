@@ -5,9 +5,11 @@ from typing import Any
 import aiohttp
 import pytest
 
+from git_graph_branch.github.checks import FAST_INTERVAL
 from git_graph_branch.github.common import Outcome
 from git_graph_branch.github.loader import Pending, Result
 from git_graph_branch.github.reviews import (
+    DISMISSAL_PERIOD,
     NO_PR,
     OPINIONATED_REVIEWS,
     POLL_INTERVAL,
@@ -305,7 +307,11 @@ def test_review_without_url_links_to_the_pr() -> None:
     ids=["connection failure", "timeout", "loaded"],
 )
 def test_poll_interval(result: Result[Reviews], interval: float) -> None:
-    assert poll_interval(result, 0) == interval
+    assert poll_interval(result, DISMISSAL_PERIOD) == interval
+
+
+def test_poll_interval_is_fast_just_after_a_push() -> None:
+    assert poll_interval(Result(NO_PR), 0) == FAST_INTERVAL
 
 
 def page(items: list[Any], *, end: str | None = None, key: str = "nodes") -> Any:
