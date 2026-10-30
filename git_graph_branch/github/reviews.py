@@ -10,6 +10,7 @@ from typing import Any
 import aiohttp
 
 from ..git.branch import Branch
+from .checks import FAST_INTERVAL
 from .common import Outcome, error_text, get
 from .loader import Fetch, Pending, Result, load
 from .remote import github_repository, pr_remote_branch
@@ -26,6 +27,7 @@ class ReviewStatus(Enum):
 
 POLL_INTERVAL = 300.0
 RETRY_INTERVAL = 30.0
+DISMISSAL_PERIOD = 15.0
 MAX_PAGE_SIZE = 100
 MIN_THREADS_PAGE_SIZE = 10
 THREADS_MARGIN = 5
@@ -515,9 +517,15 @@ def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
 
 
 def poll_interval(result: Result[Reviews], age: float) -> float:
-    """Retry soon after a connection failure, which costs no rate limit."""
+    """Retry soon after a connection failure, which costs no rate limit.
+
+    Poll fast just after a push from this machine, as GitHub can dismiss a stale
+    approval a short time after a push.
+    """
     if isinstance(result.error, aiohttp.ClientConnectionError):
         return RETRY_INTERVAL
+    if age < DISMISSAL_PERIOD:
+        return FAST_INTERVAL
     return POLL_INTERVAL
 
 
@@ -538,6 +546,8 @@ async def pr_review_status(branch: Branch, *, wait: bool) -> Outcome[ReviewStatu
         load_pr_reviews,
         (repository.owner, repository.name, f"refs/heads/{remote.name}"),
         poll_interval,
+        # A push from this machine updates the remote-tracking ref, so load again
+        version=remote.commit.hash,
         wait=wait,
     )
     return review_outcome(result)
