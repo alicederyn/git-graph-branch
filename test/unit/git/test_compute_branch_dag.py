@@ -166,6 +166,29 @@ def test_altered_history() -> None:
     assert dag == DAG(edges=[(x, y), (x, z), (y, z)])
 
 
+def test_merged_commit_reachable_from_reflog_entry() -> None:
+    # X         Z
+    # ↓         ↓
+    # a -- b -- e
+    #  \       /
+    #   c --- d -- f  ← Y
+    #
+    # Y's reflog only contains f, but d is on its first-parent chain
+    a = mock_commit("a", 100)
+    b = mock_commit("b", 300, a)
+    c = mock_commit("c", 310, a)
+    d = mock_commit("d", 320, c)
+    e = mock_commit("e", 500, b, d)
+    f = mock_commit("f", 330, d)
+    x = mock_branch("X", a)
+    y = mock_branch("Y", f, x, reflog=[f])
+    z = mock_branch("Z", e, x)
+
+    dag = compute_branch_dag([x, y, z])
+
+    assert dag == DAG(edges=[(x, y), (x, z), (y, z)])
+
+
 def test_empty_reflog() -> None:
     # a -- b
     # ↑    ↑

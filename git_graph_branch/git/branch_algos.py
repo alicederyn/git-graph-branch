@@ -95,7 +95,7 @@ class WindowedFirstBranchReferences:
         while self.commits and self.commits.peek().commit_date >= ts:
             commit = self.commits.pop()
             if commit.first_parent is not None:
-                self._add_commit_todo(self.refs[commit], commit)
+                self._add_commit_todo(self.refs[commit], commit.first_parent)
 
     def get(self, key: Commit) -> Branch | None:
         target_ts = key.commit_date - self.window_size_secs
