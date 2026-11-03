@@ -22,13 +22,16 @@ from prompt_toolkit.layout import (
     FloatContainer,
     Layout,
     Window,
+    screen,
 )
 from prompt_toolkit.layout.controls import FormattedTextControl, UIContent, UIControl
+from prompt_toolkit.layout.screen import _CHAR_CACHE, Char, Screen
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.output import ColorDepth, Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.styles import DummyStyle, Style
+from wcwidth import wcswidth
 
 from . import tmux
 from .display import Config, Frame
@@ -364,6 +367,87 @@ def tooltip_float(control: RowsControl) -> Float:
     )
 
 
+FILLER = Char("", "")
+"""Filler for a cell hidden by a multi-column character.
+
+A prompt_toolkit Screen holds one Char per column. The renderer skips the
+columns that a wide Char covers, so this cell is never drawn.
+"""
+
+
+def correct_columns(characters: dict[int, Char]) -> dict[int, int]:
+    """Find the correct column of each character, to work around a bug in
+    prompt_toolkit.
+
+    prompt_toolkit indexes each character to be displayed in a row by the
+    first column it will appear in. Unfortunately, the calculation is
+    broken. get_cwidth adds up the widths of the code points in the
+    character, but U+26A0 (warning sign) followed by U+FE0F (emoji
+    presentation) is a two-column emoji, while the individual widths of the
+    code points are 1 and 0. Window makes the same assumption implicitly as
+    well: even if get_cwidth were patched, Window would still give the
+    characters after the emoji the wrong columns.
+
+    Measures each sequence of code points using wcswidth, which does not have
+    this bug. Returns a map from original index to new index, so the caller
+    can fix the characters and other structures.
+    """
+    columns: dict[int, int] = {}
+    x = min(characters, default=0)
+    for old_x, char in sorted(characters.items()):
+        if char != FILLER:
+            columns[old_x] = x
+            x += char.width
+    return columns
+
+
+def move_cells(characters: dict[int, Char], columns: dict[int, int]) -> None:
+    """Move each character to its new column.
+
+    A multi-column character hides the columns to its right; place FILLER into
+    them. This is used by the renderer to determine the correct length of a line
+    after trimming trailing whitespace.
+    """
+    moved = {columns[x]: char for x, char in characters.items() if x in columns}
+    characters.clear()
+    for x, char in moved.items():
+        characters[x] = char
+        for i in range(1, char.width):
+            characters[x + i] = FILLER
+
+
+class SequenceWindow(Window):
+    """A Window that gives emoji sequences such as ⚠️ their full width.
+
+    Window measures each code point alone, so it gives ⚠ plus U+FE0F one
+    column where the terminal draws two. The rest of the row is then drawn one
+    column right of where Window maps the mouse, and the right half of the
+    emoji maps to the next character.
+
+    It also makes Char measure its text with wcswidth, so that each cell has
+    the width the terminal draws.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        screen.get_cwidth = wcswidth  # type: ignore[attr-defined, assignment]
+        _CHAR_CACHE.clear()
+
+    def _copy_body(
+        self, ui_content: UIContent, new_screen: Screen, *args: Any, **kwargs: Any
+    ) -> tuple[dict[int, tuple[int, int]], dict[tuple[int, int], tuple[int, int]]]:
+        visible_line_to_row_col, rowcol_to_yx = super()._copy_body(
+            ui_content, new_screen, *args, **kwargs
+        )
+        columns = {}
+        for y, characters in new_screen.data_buffer.items():
+            columns[y] = correct_columns(characters)
+            move_cells(characters, columns[y])
+        for key, (y, x) in rowcol_to_yx.items():
+            rowcol_to_yx[key] = (y, columns[y].get(x, x))
+        return visible_line_to_row_col, rowcol_to_yx
+
+
 def full_screen_app(config: Config, control: RowsControl) -> Application[None]:
     """Build a full-screen app that displays control, with its tooltip.
 
@@ -373,7 +457,8 @@ def full_screen_app(config: Config, control: RowsControl) -> Application[None]:
     return Application(
         layout=Layout(
             FloatContainer(
-                Window(control, wrap_lines=False), floats=[tooltip_float(control)]
+                SequenceWindow(control, wrap_lines=False),
+                floats=[tooltip_float(control)],
             )
         ),
         style=STYLE if config.color else DummyStyle(),

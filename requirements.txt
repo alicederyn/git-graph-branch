@@ -3,3 +3,4 @@ rubicon-objc>=0.5;sys_platform=='darwin'
 aiohttp
 graphql-core
 truststore
+wcwidth
