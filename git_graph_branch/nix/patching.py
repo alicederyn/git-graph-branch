@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import functools
+import sys
+import sysconfig
 from functools import wraps
 from pathlib import Path
 from stat import S_ISDIR
@@ -25,8 +27,34 @@ def is_dir(path: Path) -> bool:
         return False
 
 
+def python_installation_paths() -> set[Path]:
+    paths = {
+        Path(p)
+        for p in (
+            sys.prefix,
+            sys.base_prefix,
+            sys.exec_prefix,
+            sys.base_exec_prefix,
+            *sysconfig.get_paths().values(),
+            *sys.path,
+        )
+    }
+    return {path for path in paths if path.is_absolute()}
+
+
+def is_python_installation_path(path: Path) -> bool:
+    return any(path.is_relative_to(root) for root in python_installation_paths())
+
+
 def record_path_access(path: Path) -> None:
-    cohort = get_active_cohort()
+    try:
+        cohort = get_active_cohort()
+    except RuntimeError:
+        # Permit reading package files, e.g. metadata, outside any cohort.
+        # This can occur during startup if a module is lazily imported.
+        if is_python_installation_path(path):
+            return
+        raise
     if cohort is not None:
         cohort.paths.add(path)
         try:
