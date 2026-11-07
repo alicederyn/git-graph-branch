@@ -117,6 +117,7 @@ def nix_path() -> Iterator[Any]:
         patch.object(nix.patching, "Path", FakePath),
         patch.object(nix.patching, "PATH_STAT", FakePath.stat),
         patch.object(nix.tracking, "PATH_STAT", FakePath.stat),
+        patch.object(nix.tracking, "PATH_GLOB", FakePath.glob),
     ):
         yield FakePath
 

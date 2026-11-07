@@ -1,3 +1,4 @@
+import contextvars
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -6,7 +7,17 @@ from pathlib import Path
 import pytest
 
 from git_graph_branch.nix.cohort import Cohort, Glob
+from git_graph_branch.nix.patching import install_glob_hook
 from git_graph_branch.nix.tracking import should_nix
+
+
+class Patching:
+    def __init__(self) -> None:
+        self.glob = Path.glob
+
+    def restore(self) -> None:
+        setattr(Path, "glob", self.glob)
+
 
 CONFIG = Path("./.gitconfig")
 PACK_DIR = Path("./.git/objects/pack")
@@ -163,3 +174,20 @@ def test_glob_file_superdir(last_check: datetime) -> None:
     result = should_nix(cohort, last_check.timestamp())
 
     assert not result
+
+
+def test_glob_outside_any_context(last_check: datetime) -> None:
+    # e.g. called from a macOS FSEvents callback, with no contextvars set
+    cohort = Cohort()
+    cohort.globs.add(Glob(PACK_DIR, "*.pack", case_sensitive=None))
+    touch(PACK2, last_check + timedelta(seconds=1))
+    cohort.seen = {PACK1, PACK2}
+    patching = Patching()  # Restore Path afterwards
+    install_glob_hook()
+
+    try:
+        result = contextvars.Context().run(should_nix, cohort, last_check.timestamp())
+    finally:
+        patching.restore()
+
+    assert result

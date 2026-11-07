@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .cohort import Cohort, on_add_cohort
-from .patching import PATH_STAT
+from .patching import PATH_GLOB, PATH_STAT
 
 SAFETY_MARGIN = timedelta(seconds=1)
 cohort_timestamps: dict[Cohort, float] = {}
@@ -24,7 +24,9 @@ def paths_in_cohort(cohort: Cohort) -> Iterator[Path]:
     yield from cohort.paths
     seen: set[Path] = set()  # Avoid processing the same path twice
     for glob in cohort.globs:
-        for path in glob.base_path.glob(glob.pattern):
+        for path in PATH_GLOB(
+            glob.base_path, glob.pattern, case_sensitive=glob.case_sensitive
+        ):
             if path not in cohort.paths and path not in seen:
                 seen.add(path)
                 yield path
