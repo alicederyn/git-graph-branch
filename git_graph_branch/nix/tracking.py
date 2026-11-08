@@ -50,8 +50,9 @@ def should_nix(cohort: Cohort, timestamp: float) -> bool:
 
 
 def nix_cohort_if_has_changes(cohort: Cohort) -> None:
-    timestamp = cohort_timestamps[cohort]
-    if should_nix(cohort, timestamp):
+    # FSEvents may deliver further callbacks after the cohort has been nixed
+    timestamp = cohort_timestamps.get(cohort)
+    if timestamp is not None and should_nix(cohort, timestamp):
         cohort.nix()
 
 
