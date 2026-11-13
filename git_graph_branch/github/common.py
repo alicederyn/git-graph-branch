@@ -35,6 +35,11 @@ class Outcome[E: Enum](NamedTuple):
     """Whether the status is not loaded yet, as the caller did not wait."""
     tooltip: str | None = None
     """More detail on the status, from the last load that did not fail."""
+    remote_oid: str | None = None
+    """The commit of the remote branch on GitHub, from the last load that did not
+    fail, or None if it does not exist or is not known."""
+    remote_reason: str | None = None
+    """Why the remote-tracking branch is out of date, if GitHub shows that it is."""
 
 
 def error_text(error: Exception | None) -> str | None:

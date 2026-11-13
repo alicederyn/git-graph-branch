@@ -59,6 +59,8 @@ class Result[S]:
 type PollPolicy[S] = Callable[[Result[S], float], float]
 """Seconds until the next poll, from the latest result and the seconds since the
 state was first loaded."""
+type Update[S] = Callable[[S, Any], S]
+"""The state, changed to agree with what a new version makes true."""
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,7 @@ class Entry:
     first_loaded_at: float
     poll_policy: PollPolicy[Any]
     version: Hashable
+    update: Update[Any] | None = None
     latest: Result[Any] | None = None
     next_poll_at: float = inf
     served_pending: bool = False
@@ -116,6 +119,7 @@ async def load[S, *Ts](
     poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
+    update: Update[S] | None = None,
     wait: Literal[True] = True,
 ) -> Result[S]: ...
 
@@ -128,6 +132,7 @@ async def load[S, *Ts](
     poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
+    update: Update[S] | None = None,
     wait: bool,
 ) -> Result[S] | Pending: ...
 
@@ -139,6 +144,7 @@ async def load[S, *Ts](
     poll_policy: PollPolicy[S],
     *,
     version: Hashable = None,
+    update: Update[S] | None = None,
     wait: bool = True,
 ) -> Result[S] | Pending:
     """Load a state with load_function(fetch, previous_state, *args).
@@ -149,7 +155,9 @@ async def load[S, *Ts](
 
     When the version changes, the state loads again at once, and the age that the
     poll policy gets starts again from zero. Until the new state arrives, the load
-    gives the previous one.
+    gives the previous one, changed by update if there is one. A load that started
+    before the version changed gives a state that update also changes, so that
+    the stored state does not go back to the old version.
 
     If wait is false, and the state has not loaded, return Pending; the load
     still runs, and its state nixes the calculation when it arrives.
@@ -158,6 +166,7 @@ async def load[S, *Ts](
     entry = entries.get(key)
     if entry is None or entry.fact.nixed:
         entry = add_entry(key, poll_policy, version, entry)
+    entry.update = update
     if entry.version != version:
         restart(entry, version)
     entry.poll_policy = poll_policy
@@ -190,9 +199,20 @@ def add_entry(
     return entry
 
 
+def updated(entry: Entry, result: Result[Any]) -> Result[Any]:
+    """result, changed to agree with the entry's version."""
+    if entry.update is None or result.state is None:
+        return result
+    return Result(entry.update(result.state, entry.version), result.error)
+
+
 def restart(entry: Entry, version: Hashable) -> None:
     """Load again at once, and poll as if the state was first loaded now."""
     entry.version = version
+    if entry.latest is not None and entry.result.done():
+        entry.latest = updated(entry, entry.latest)
+        entry.result = asyncio.get_running_loop().create_future()
+        entry.result.set_result(entry.latest)
     entry.first_loaded_at = asyncio.get_running_loop().time()
     if entry.next_poll_at != inf:
         entry.next_poll_at = inf
@@ -253,10 +273,13 @@ async def run_load(state: EndpointState, entry: Entry) -> None:
         return await fetch_in_batch(state, Query(document, variables))
 
     previous = entry.latest.state if entry.latest else None
+    version = entry.version
     try:
         result = Result(await entry.key.load_function(fetch, previous, *entry.key.args))
     except Exception as e:
         result = Result(previous, e)
+    if entry.version != version:
+        result = updated(entry, result)
     deliver(state, entry, result)
 
 

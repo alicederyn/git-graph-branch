@@ -338,3 +338,53 @@ async def test_server_error_does_not_stop_polls(
 def test_ssl_context_is_not_strict() -> None:
     """Python 3.13's strict flag rejects some corporate CA bundles."""
     assert not ssl_context(None).verify_flags & ssl.VERIFY_X509_STRICT
+
+
+def with_version(state: dict[str, Any], version: str) -> dict[str, Any]:
+    return {**state, "version": version}
+
+
+async def test_a_new_version_updates_the_state_until_it_loads(watching: None) -> None:
+    with report_calculation():
+        await load(ENDPOINT, echo, (1,), never_poll, version="a")
+    with report_calculation():
+        result = await load(
+            ENDPOINT, echo, (1,), never_poll, version="b", update=with_version
+        )
+
+    assert result == Result({"echo": 1, "version": "b"})
+
+
+async def test_a_load_from_before_a_new_version_is_updated(
+    watching: None, post: AsyncMock
+) -> None:
+    started, release = asyncio.Event(), asyncio.Event()
+    respond = post.side_effect
+
+    async def slow(endpoint: Endpoint, body: Mapping[str, Any]) -> Any:
+        started.set()
+        await release.wait()
+        return await respond(endpoint, body)
+
+    post.side_effect = slow
+    with report_calculation():
+        await load(ENDPOINT, echo, (1,), never_poll, version="a", wait=False)
+    await started.wait()
+    with report_calculation():
+        await load(
+            ENDPOINT,
+            echo,
+            (1,),
+            never_poll,
+            version="b",
+            update=with_version,
+            wait=False,
+        )
+    release.set()
+    await asyncio.sleep(0.05)
+    with report_calculation():
+        result = await load(
+            ENDPOINT, echo, (1,), never_poll, version="b", update=with_version
+        )
+
+    assert result == Result({"echo": 1, "version": "b"})

@@ -15,8 +15,11 @@
 ┬◀┐ A branch with two merged upstream branches
 
 🔷  A remote branch exists with the same name and the same commit,
-    and has no open PR
-🔶  A remote branch exists with the same name
+    and has no PR
+🔶  A remote branch exists with the same name, and is out of sync,
+    or has changes on GitHub that are not fetched
+🌸  The PR of the branch was merged
+🪦  The PR of the branch was closed without merging
 
 [1 unmerged]  Upstream branches have unmerged commits
 

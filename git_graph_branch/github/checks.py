@@ -34,6 +34,7 @@ query ($owner: String!, $name: String!, $ref: String!) {
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
     ref(qualifiedName: $ref) {
+      target { oid }
       associatedPullRequests(states: OPEN, first: 1) {
         nodes {
           baseRepository {
@@ -94,13 +95,30 @@ def new_pr_link(
     return new_pr_url(repository, branch)
 
 
+def remote_reason(data: dict[str, Any], remote: str, local_oid: str) -> str | None:
+    """Why the remote-tracking branch is not the same as the branch on GitHub."""
+    if get(data, "repository") is None:
+        return None
+    oid = get(data, "repository", "ref", "target", "oid")
+    if oid is None:
+        return f"{remote}: deleted on remote"
+    if oid != local_oid:
+        return f"{remote}: changed on remote"
+    return None
+
+
 def check_outcome(
-    result: Result[dict[str, Any]] | Pending, repository: Repository, branch: str
+    result: Result[dict[str, Any]] | Pending,
+    repository: Repository,
+    branch: str,
+    remote: str,
+    local_oid: str,
 ) -> Outcome[CheckStatus]:
     """The check status of the PR for a remote branch.
 
     With no PR, the URL is the link to create one. A rollup state that GitHub
-    adds later is not known, and counts as a failure.
+    adds later is not known, and counts as a failure. The remote reason says if
+    local_oid, the commit of the remote-tracking branch, is out of date.
     """
     if result is Pending.PENDING:
         return Outcome(loading=True)
@@ -108,16 +126,22 @@ def check_outcome(
     data = result.state
     if data is None:
         return Outcome(error=error)
+    oid = get(data, "repository", "ref", "target", "oid")
+    reason = remote_reason(data, remote, local_oid)
     pr_node = pr(data)
     if pr_node is None:
         return Outcome(
-            error=error, url=new_pr_link(data, repository, branch), has_pr=False
+            error=error,
+            url=new_pr_link(data, repository, branch),
+            has_pr=False,
+            remote_oid=oid,
+            remote_reason=reason,
         )
     state = pr_rollup_state(data)
     if error is None and state is not None and state not in ROLLUP_STATUS:
         error = f"Unknown check state {state}"
     status = ROLLUP_STATUS.get(state) if state else None
-    return Outcome(status, error, has_pr=True)
+    return Outcome(status, error, has_pr=True, remote_oid=oid, remote_reason=reason)
 
 
 def poll_interval(result: Result[dict[str, Any]], age: float) -> float:
@@ -136,6 +160,22 @@ def poll_interval(result: Result[dict[str, Any]], age: float) -> float:
     if ROLLUP_STATUS.get(pr_rollup_state(data) or "") == CheckStatus.PENDING:
         return MEDIUM_INTERVAL
     return SLOW_INTERVAL
+
+
+def after_push(data: dict[str, Any], oid: str) -> dict[str, Any]:
+    """data, changed to agree with a push of oid from this machine.
+
+    GitHub accepted the push, so the branch exists at oid. A push does not reopen
+    a PR, so a branch that was deleted has no open PR.
+    """
+    repository = data.get("repository")
+    if repository is None:
+        return data
+    ref = repository.get("ref") or {"associatedPullRequests": {"nodes": []}}
+    return {
+        **data,
+        "repository": {**repository, "ref": {**ref, "target": {"oid": oid}}},
+    }
 
 
 async def load_pr_checks(
@@ -163,6 +203,9 @@ async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]
         poll_interval,
         # A push from this machine updates the remote-tracking ref, so load again
         version=remote.commit.hash,
+        update=after_push,
         wait=wait,
     )
-    return check_outcome(result, repository, remote.name)
+    return check_outcome(
+        result, repository, remote.name, remote.remote, remote.commit.hash
+    )
