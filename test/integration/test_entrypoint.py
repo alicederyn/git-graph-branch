@@ -10,7 +10,7 @@ import pytest
 
 from git_graph_branch import display
 from git_graph_branch.cli import amain
-from git_graph_branch.github import CheckStatus, ReviewStatus
+from git_graph_branch.github import CheckStatus, EndedState, ReviewStatus
 from git_graph_branch.github.common import Outcome
 
 from ..unit.git.utils import git_remote_repo, git_test_commit
@@ -249,6 +249,51 @@ async def test_in_sync_icon_shows_only_if_there_is_no_pr(
     with (
         patch.object(display, "pr_check_status", new=AsyncMock(return_value=check)),
         patch.object(display, "pr_review_status", new=AsyncMock(return_value=review)),
+    ):
+        await amain(["--remote-icons", "--pr-icons"])
+
+    out, err = capsys.readouterr()
+    assert f"feature {icons}\r\n" in out
+    assert err == ""
+
+
+DELETED = Outcome[Any](has_pr=False, remote_reason="origin: deleted on remote")
+MERGED = Outcome(EndedState.MERGED, url="https://github.com/o/n/pull/1")
+
+
+@pytest.mark.usefixtures("repo")
+@pytest.mark.parametrize(
+    "check, ended, icons",
+    [
+        (NO_PR, MERGED, "🌸"),
+        (DELETED, MERGED, "🔶🌸"),
+        (NO_PR, Outcome(EndedState.CLOSED), "🪦"),
+        (DELETED, Outcome[EndedState](), "🔶"),
+        (NO_PR, LOADING, "🔌"),
+    ],
+    ids=[
+        "merged PR",
+        "merged PR with the remote branch deleted",
+        "closed PR",
+        "remote branch deleted with no PR",
+        "ended PR loading",
+    ],
+)
+async def test_ended_pr_takes_the_place_of_the_in_sync_icon(
+    capsys: pytest.CaptureFixture[str],
+    check: Outcome[CheckStatus],
+    ended: Outcome[EndedState],
+    icons: str,
+) -> None:
+    config_setup()
+    commit = git_test_commit()
+    check_call(["git", "branch", "feature"])
+    git_remote_repo("origin", feature=commit)
+
+    with (
+        patch.object(display, "pr_check_status", new=AsyncMock(return_value=check)),
+        patch.object(display, "pr_review_status", new=AsyncMock(return_value=NO_PR)),
+        patch.object(display, "pr_ended_status", new=AsyncMock(return_value=ended)),
     ):
         await amain(["--remote-icons", "--pr-icons"])
 

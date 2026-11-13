@@ -7,6 +7,7 @@ from git_graph_branch.github.checks import (
     MEDIUM_INTERVAL,
     SLOW_INTERVAL,
     CheckStatus,
+    after_push,
     check_outcome,
     poll_interval,
 )
@@ -16,6 +17,7 @@ from git_graph_branch.github.remote import Repository
 
 REPOSITORY = Repository("github.com", "o", "n")
 NEW_PR_URL = "https://github.com/o/n/pull/new/b"
+LOCAL_OID = "local"
 
 
 def response(
@@ -30,6 +32,7 @@ def response(
         "repository": {
             "defaultBranchRef": {"name": "main"},
             "ref": {
+                "target": {"oid": LOCAL_OID},
                 "associatedPullRequests": {
                     "nodes": [
                         {
@@ -43,7 +46,7 @@ def response(
                             },
                         }
                     ]
-                }
+                },
             },
         }
     }
@@ -52,7 +55,7 @@ def response(
 NO_PR: dict[str, Any] = {
     "repository": {
         "defaultBranchRef": {"name": "main"},
-        "ref": {"associatedPullRequests": {"nodes": []}},
+        "ref": {"target": {"oid": LOCAL_OID}, "associatedPullRequests": {"nodes": []}},
     }
 }
 
@@ -60,7 +63,7 @@ NO_PR: dict[str, Any] = {
 def outcome(
     result: Result[dict[str, Any]] | Pending, branch: str = "b"
 ) -> Outcome[CheckStatus]:
-    return check_outcome(result, REPOSITORY, branch)
+    return check_outcome(result, REPOSITORY, branch, "origin", LOCAL_OID)
 
 
 @pytest.mark.parametrize(
@@ -78,32 +81,49 @@ def test_check_status_from_rollup_state(state: str, status: CheckStatus) -> None
 
 
 def test_no_pr_links_to_pr_creation() -> None:
-    assert outcome(Result(NO_PR)) == Outcome(url=NEW_PR_URL, has_pr=False)
+    assert outcome(Result(NO_PR)) == Outcome(
+        url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
+    )
 
 
 def test_default_branch_has_no_pr_creation_link() -> None:
-    assert outcome(Result(NO_PR), branch="main") == Outcome(has_pr=False)
+    assert outcome(Result(NO_PR), branch="main") == Outcome(
+        has_pr=False, remote_oid=LOCAL_OID
+    )
 
 
-@pytest.mark.parametrize(
-    "result",
-    [{"repository": None}, {"repository": {"ref": None}}],
-    ids=["no repository", "no remote branch"],
-)
-def test_no_pr_creation_link_without_the_remote_branch(
-    result: dict[str, Any],
-) -> None:
-    assert outcome(Result(result)) == Outcome(has_pr=False)
+def test_no_pr_creation_link_without_the_repository() -> None:
+    assert outcome(Result({"repository": None})) == Outcome(has_pr=False)
+
+
+def test_deleted_remote_branch_has_no_pr_creation_link() -> None:
+    assert outcome(Result({"repository": {"ref": None}})) == Outcome(
+        has_pr=False, remote_reason="origin: deleted on remote"
+    )
+
+
+def test_remote_branch_changed_on_github() -> None:
+    data = response("SUCCESS")
+    data["repository"]["ref"]["target"]["oid"] = "pushed elsewhere"
+
+    assert outcome(Result(data)) == Outcome(
+        CheckStatus.PASSED,
+        has_pr=True,
+        remote_oid="pushed elsewhere",
+        remote_reason="origin: changed on remote",
+    )
 
 
 def test_pr_with_no_checks_has_no_status() -> None:
-    assert outcome(Result(response(None))) == Outcome(has_pr=True)
+    assert outcome(Result(response(None))) == Outcome(has_pr=True, remote_oid=LOCAL_OID)
 
 
 def test_failed_load_keeps_the_last_status() -> None:
     result = Result(response("SUCCESS"), TimeoutError())
 
-    assert outcome(result) == Outcome(CheckStatus.PASSED, "TimeoutError", has_pr=True)
+    assert outcome(result) == Outcome(
+        CheckStatus.PASSED, "TimeoutError", has_pr=True, remote_oid=LOCAL_OID
+    )
 
 
 def test_first_failed_load_has_no_status() -> None:
@@ -112,7 +132,7 @@ def test_first_failed_load_has_no_status() -> None:
 
 def test_unknown_rollup_state_is_a_failure() -> None:
     assert outcome(Result(response("NEW_STATE"))) == Outcome(
-        error="Unknown check state NEW_STATE", has_pr=True
+        error="Unknown check state NEW_STATE", has_pr=True, remote_oid=LOCAL_OID
     )
 
 
@@ -143,3 +163,21 @@ def test_poll_interval(
     result: Result[dict[str, Any]], age: float, interval: float
 ) -> None:
     assert poll_interval(result, age) == interval
+
+
+def test_push_moves_the_remote_branch() -> None:
+    data = response("SUCCESS")
+    data["repository"]["ref"]["target"]["oid"] = "before push"
+    pushed = after_push(data, LOCAL_OID)
+
+    assert outcome(Result(pushed)) == Outcome(
+        CheckStatus.PASSED, has_pr=True, remote_oid=LOCAL_OID
+    )
+
+
+def test_push_after_deletion_makes_the_remote_branch_with_no_pr() -> None:
+    pushed = after_push({"repository": {"ref": None}}, LOCAL_OID)
+
+    assert outcome(Result(pushed)) == Outcome(
+        url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
+    )

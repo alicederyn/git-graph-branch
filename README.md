@@ -59,6 +59,8 @@ A plain drag does not select text in watch mode. In most terminals, hold Shift w
 | 💬 | The branch PR has unaddressed comments |
 | 📭 | The branch PR is awaiting review |
 | 🌱 | The branch PR is in draft status |
+| 🌸 | The branch PR was merged |
+| 🪦 | The branch PR was closed without merging |
 | 🔷 | The branch is in sync with the remote |
 | 🔶 | The branch is out of sync with the remote |
 | ❌ | A GitHub check failed |

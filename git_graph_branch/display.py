@@ -12,7 +12,15 @@ from .dag import NodeArt, layout
 from .git import branches, compute_branch_dag, worktree_branches
 from .git.branch import Branch, RemoteBranch
 from .git.commit_algos import unmerged_commits
-from .github import CheckStatus, ReviewStatus, pr_check_status, pr_review_status
+from .github import (
+    CheckStatus,
+    EndedState,
+    ReviewStatus,
+    pr_check_status,
+    pr_ended_status,
+    pr_review_status,
+)
+from .github.common import Outcome
 from .links import Icon
 
 
@@ -45,10 +53,18 @@ class PrStatus(NamedTuple):
     new_pr_url: str | None = None
     """Where to create a PR, once both statuses have loaded with no PR."""
     has_pr: bool | None = None
-    """False if both statuses say the branch has no PR, else None if either is not known."""
+    """False if the statuses say the branch has no PR, open or ended, else None if
+    any is not known."""
     review_loading: bool = False
     check_loading: bool = False
     review_tooltip: str | None = None
+    remote_reason: str | None = None
+    """Why the remote-tracking branch is out of date, if GitHub shows that it is."""
+    ended: EndedState | None = None
+    """Whether the branch's PR merged or closed, if it has no open PR."""
+    ended_url: str | None = None
+    ended_tooltip: str | None = None
+    ended_loading: bool = False
 
 
 class Frame(NamedTuple):
@@ -106,13 +122,14 @@ def remote_tooltip(b: Branch, remote: RemoteBranch) -> str | None:
     return f"{remote.remote}: {', '.join(counts)}" if counts else None
 
 
-def sync_tooltip(b: Branch) -> str | None:
-    """How many commits the branch is ahead of and behind each of its remotes."""
+def sync_tooltip(b: Branch, remote_reason: str | None = None) -> str | None:
+    """Why the remote-tracking branch is out of date, if it is, then how many
+    commits the branch is ahead of and behind each of its remotes."""
     remotes = [r for r in (b.upstream, b.downstream) if isinstance(r, RemoteBranch)]
     lines = [
         line for remote in dict.fromkeys(remotes) if (line := remote_tooltip(b, remote))
     ]
-    return "\n".join(lines) or None
+    return "\n".join([remote_reason, *lines] if remote_reason else lines) or None
 
 
 def compute_unmerged(b: Branch, parents: Iterable[Branch]) -> int:
@@ -149,28 +166,38 @@ def icon(
 def status_icons(b: Branch, config: Config, pr_status: PrStatus) -> StyleAndTextTuples:
     """The push and PR status icons.
 
-    🔷 shows only if the branch has no PR, as the review icon takes its place.
+    🔶 shows if the remote-tracking branches say the branch is out of sync, or
+    GitHub says the remote-tracking branch is out of date.
+    🔷 shows only if the branch has no PR, open or ended, as the review or ended
+    icon takes its place.
     🔌 takes the place of the first status that has not loaded.
     """
     icons: StyleAndTextTuples = []
     if config.remote_icons:
         sync_status = remote_sync_status(b)
-        if sync_status == SyncStatus.OUT_OF_SYNC:
+        if sync_status == SyncStatus.OUT_OF_SYNC or pr_status.remote_reason:
             icons.append(
                 icon(
-                    SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url, sync_tooltip(b)
+                    SYNC_STATUS_ICON[SyncStatus.OUT_OF_SYNC],
+                    pr_status.new_pr_url,
+                    sync_tooltip(b, pr_status.remote_reason),
                 )
             )
         elif sync_status == SyncStatus.IN_SYNC and pr_status.has_pr is False:
             icons.append(icon(SYNC_STATUS_ICON[sync_status], pr_status.new_pr_url))
-    if pr_status.review_loading:
+    pr_loading = pr_status.review_loading or pr_status.ended_loading
+    if pr_loading:
         icons.append(icon("🔌", tooltip=LOADING_TOOLTIP))
     elif pr_status.review:
         icons.append(
             icon(pr_status.review.value, pr_status.review_url, pr_status.review_tooltip)
         )
+    elif pr_status.ended:
+        icons.append(
+            icon(pr_status.ended.value, pr_status.ended_url, pr_status.ended_tooltip)
+        )
     if pr_status.check_loading:
-        if not pr_status.review_loading:
+        if not pr_loading:
             icons.append(icon("🔌", tooltip=LOADING_TOOLTIP))
     elif pr_status.check:
         icons.append(("", pr_status.check.value))
@@ -204,8 +231,16 @@ async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
     check, review = await asyncio.gather(
         pr_check_status(branch, wait=wait), pr_review_status(branch, wait=wait)
     )
-    has_no_pr = check.has_pr is False and review.has_pr is False
-    errors = dict.fromkeys(e for e in (review.error, check.error) if e)
+    ended: Outcome[EndedState] = Outcome()
+    if check.has_pr is False:
+        ended = await pr_ended_status(branch, check.remote_oid, wait=wait)
+    has_no_pr = (
+        check.has_pr is False
+        and review.has_pr is False
+        and ended.status is None
+        and not ended.loading
+    )
+    errors = dict.fromkeys(e for e in (review.error, check.error, ended.error) if e)
     return PrStatus(
         check.status,
         review.status,
@@ -216,6 +251,11 @@ async def pr_status(branch: Branch, *, wait: bool) -> PrStatus:
         review.loading,
         check.loading,
         review.tooltip,
+        check.remote_reason,
+        ended.status,
+        ended.url,
+        ended.tooltip,
+        ended.loading,
     )
 
 

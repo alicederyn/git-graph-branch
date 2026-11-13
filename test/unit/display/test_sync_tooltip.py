@@ -37,3 +37,13 @@ def test_each_remote_gets_a_line_without_zero_counts(diverged: dict[str, str]) -
     check_call(["git", "branch", "feature", "--set-upstream-to", "upstream/feature"])
 
     assert sync_tooltip(Branch("feature")) == "upstream: 2 ahead"
+
+
+def test_remote_reason_comes_first(diverged: dict[str, str]) -> None:
+    check_call(["git", "config", "--global", "remote.pushdefault", "origin"])
+    git_remote_repo("origin", feature=diverged["base"])
+
+    assert (
+        sync_tooltip(Branch("feature"), "origin: deleted on remote")
+        == "origin: deleted on remote\norigin: 2 ahead"
+    )
