@@ -1,12 +1,14 @@
 """Find the GitHub repository and GraphQL endpoint of a git remote."""
 
 import re
+from collections.abc import Hashable
 from dataclasses import dataclass
 from os import environ
 from urllib.request import getproxies, proxy_bypass
 
 from ..git.branch import Branch, RemoteBranch
 from ..git.config import http_config, remote_push_default, remote_url
+from .store import assumes_no_pr, read_push_state
 from .transport import Endpoint
 
 
@@ -110,9 +112,23 @@ def github_repository(remote: str) -> tuple[Endpoint, Repository] | None:
     return (github, repository) if github else None
 
 
+def pr_remote_branch(branch: Branch) -> RemoteBranch | None:
+    """The status branch: the remote branch whose open PR is the branch's PR
+    (ADRs 5 and 8).
+
+    This is the branch on the pushdefault remote if its remote-tracking branch
+    exists, else the upstream branch if it is on a remote and its
+    remote-tracking branch exists.
+    """
+    if downstream := branch.downstream:
+        return downstream
+    upstream = branch.upstream
+    return upstream if isinstance(upstream, RemoteBranch) else None
+
+
 @dataclass(frozen=True)
 class PushTarget:
-    """The remote branch whose open PR is the branch's PR (ADRs 5 and 8)."""
+    """The remote branch that a push of the branch makes or changes (ADR 8)."""
 
     remote: str
     name: str
@@ -140,33 +156,47 @@ def push_target(branch: Branch) -> PushTarget | None:
 
 
 @dataclass(frozen=True)
-class GitHubTarget:
-    """A push target on GitHub, with the endpoint to load its data from."""
+class StatusBranch:
+    """The status branch on GitHub, with the endpoint to load its data from."""
 
     endpoint: Endpoint
     repository: Repository
-    remote: str
-    name: str
-    tracking: RemoteBranch | None
-    """The remote-tracking branch, or None if there is none."""
+    remote: RemoteBranch
 
     @property
     def ref(self) -> str:
-        return f"refs/heads/{self.name}"
+        return f"refs/heads/{self.remote.name}"
 
     @property
-    def oid(self) -> str | None:
-        """The commit of the remote-tracking branch, if there is one."""
-        return self.tracking.commit.hash if self.tracking else None
+    def oid(self) -> str:
+        return self.remote.commit.hash
+
+    def assumes_no_pr(self, load: Hashable, pending: bool) -> bool:
+        """Whether the load must show no PR, after a first push (ADR 8)."""
+        return assumes_no_pr((self.remote.remote, self.remote.name), load, pending)
 
 
-def github_push_target(branch: Branch) -> GitHubTarget | None:
-    """The branch's push target, if it is on GitHub and there is a token for it."""
+def read_push_target_state(branch: Branch) -> None:
+    """Update the store record of the branch's push target, if it is on GitHub."""
     target = push_target(branch)
-    if target is None:
+    if target is None or github_repository(target.remote) is None:
+        return
+    read_push_state((target.remote, target.name), target.tracking is not None)
+
+
+def status_branch(branch: Branch) -> StatusBranch | None:
+    """The branch's status branch, if it is on GitHub and there is a token for it.
+
+    Reads the store record of the push target also when there is no status
+    branch, so that the record exists before the first push. When the push
+    target's remote-tracking branch exists, it is the status branch.
+    """
+    read_push_target_state(branch)
+    remote = pr_remote_branch(branch)
+    if remote is None:
         return None
-    found = github_repository(target.remote)
+    found = github_repository(remote.remote)
     if found is None:
         return None
     github, repository = found
-    return GitHubTarget(github, repository, target.remote, target.name, target.tracking)
+    return StatusBranch(github, repository, remote)

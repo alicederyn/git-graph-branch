@@ -1,7 +1,6 @@
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
@@ -386,15 +385,6 @@ async def load(github: FakeGitHub, previous: Reviews | None) -> Reviews:
     )
 
 
-async def test_no_remote_tracking_branch_sends_no_request() -> None:
-    fetch = AsyncMock()
-
-    state = await load_pr_reviews(fetch, None, None, "o", "n", "refs/heads/b")
-
-    assert state == NO_PR
-    fetch.assert_not_called()
-
-
 async def test_load_reads_every_page() -> None:
     review = {
         "url": "ann",
@@ -446,13 +436,17 @@ async def test_load_reads_all_threads_of_a_new_pr() -> None:
     assert github.thread_pages == [("t1", 10), (None, 3)]
 
 
-def test_no_remote_tracking_branch_has_no_reviews() -> None:
-    result = Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), None, "oid")
-
-    assert agreeing(result, None) == Result(NO_PR)
+def test_first_push_has_no_reviews_before_it_loads() -> None:
+    assert agreeing(Pending.PENDING, "oid", True) == Result(NO_PR, None, "oid")
 
 
 def test_push_keeps_the_reviews() -> None:
     result = Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), None, "old")
 
-    assert agreeing(result, "new") is result
+    assert agreeing(result, "new", False) is result
+
+
+def test_failed_first_load_after_a_first_push_shows_the_error() -> None:
+    result: Result[Reviews] = Result(None, TimeoutError())
+
+    assert agreeing(result, "oid", True) is result

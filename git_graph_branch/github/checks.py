@@ -7,7 +7,7 @@ from typing import Any
 from ..git.branch import Branch
 from ..graphql.loader import Fetch, Pending, Result, load
 from .common import Outcome, error_text, get
-from .remote import Repository, github_push_target, new_pr_url
+from .remote import Repository, new_pr_url, status_branch
 
 
 class CheckStatus(Enum):
@@ -24,11 +24,9 @@ ROLLUP_STATUS = {
     "SUCCESS": CheckStatus.PASSED,
 }
 
-NO_REMOTE_TRACKING_BRANCH: dict[str, Any] = {
-    "repository": {"defaultBranchRef": None, "ref": None}
-}
-"""The state of a push target with no remote-tracking branch: as if the branch
-is not on GitHub, so it has no PR."""
+NOT_ON_GITHUB: dict[str, Any] = {"repository": {"defaultBranchRef": None, "ref": None}}
+"""The state of a branch that is not on GitHub, in a repository whose default
+branch is not known."""
 
 FAST_INTERVAL = 5.0
 FAST_PERIOD = 180.0
@@ -101,11 +99,9 @@ def new_pr_link(
     return new_pr_url(repository, branch)
 
 
-def remote_reason(
-    data: dict[str, Any], remote: str, local_oid: str | None
-) -> str | None:
+def remote_reason(data: dict[str, Any], remote: str, local_oid: str) -> str | None:
     """Why the remote-tracking branch is not the same as the branch on GitHub."""
-    if local_oid is None or get(data, "repository") is None:
+    if get(data, "repository") is None:
         return None
     oid = get(data, "repository", "ref", "target", "oid")
     if oid is None:
@@ -120,7 +116,7 @@ def check_outcome(
     repository: Repository,
     branch: str,
     remote: str,
-    local_oid: str | None,
+    local_oid: str,
 ) -> Outcome[CheckStatus]:
     """The check status of the PR for a remote branch.
 
@@ -174,7 +170,7 @@ def after_push(data: dict[str, Any], oid: str) -> dict[str, Any]:
     """data, changed to agree with a push of oid from this machine.
 
     GitHub accepted the push, so the branch exists at oid. A push does not reopen
-    a PR, so a branch that was deleted, or never pushed, has no open PR.
+    a PR, so a branch that was deleted, or not on GitHub, has no open PR.
     """
     repository = data.get("repository")
     if repository is None:
@@ -187,29 +183,31 @@ def after_push(data: dict[str, Any], oid: str) -> dict[str, Any]:
 
 
 def agreeing(
-    result: Result[dict[str, Any]] | Pending, oid: str | None
+    result: Result[dict[str, Any]] | Pending, oid: str, first_push: bool
 ) -> Result[dict[str, Any]] | Pending:
     """result, changed to agree with oid, the commit of the remote-tracking branch.
 
     A result that was loaded for another commit is older than oid, as git changes
-    the remote-tracking branch after GitHub accepts a push.
+    the remote-tracking branch after GitHub accepts a push. After a first push,
+    a pending result is a branch at oid with no PR.
     """
-    if result is Pending.PENDING or result.state is None or result.input == oid:
+    if result is Pending.PENDING:
+        if first_push:
+            return Result(after_push(NOT_ON_GITHUB, oid), None, oid)
         return result
-    state = NO_REMOTE_TRACKING_BRANCH if oid is None else after_push(result.state, oid)
-    return Result(state, result.error, oid)
+    if result.state is None or result.input == oid:
+        return result
+    return Result(after_push(result.state, oid), result.error, oid)
 
 
 async def load_pr_checks(
     fetch: Fetch,
     previous: Mapping[str, Any] | None,
-    oid: str | None,
+    oid: str,
     owner: str,
     name: str,
     ref: str,
 ) -> dict[str, Any]:
-    if oid is None:
-        return NO_REMOTE_TRACKING_BRANCH
     return await fetch(PR_CHECKS_QUERY, {"owner": owner, "name": name, "ref": ref})
 
 
@@ -218,19 +216,27 @@ async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]
 
     If wait is false, a status that has not loaded is loading.
     """
-    target = github_push_target(branch)
-    if target is None:
+    source = status_branch(branch)
+    if source is None:
         return Outcome(has_pr=False)
-    repository = target.repository
+    repository = source.repository
     result = await load(
-        target.endpoint,
+        source.endpoint,
         load_pr_checks,
-        (repository.owner, repository.name, target.ref),
+        (repository.owner, repository.name, source.ref),
         poll_interval,
         # A push from this machine updates the remote-tracking ref, so load again
-        input=target.oid,
+        input=source.oid,
         wait=wait,
     )
     return check_outcome(
-        agreeing(result, target.oid), repository, target.name, target.remote, target.oid
+        agreeing(
+            result,
+            source.oid,
+            source.assumes_no_pr(load_pr_checks, result is Pending.PENDING),
+        ),
+        repository,
+        source.remote.name,
+        source.remote.remote,
+        source.oid,
     )

@@ -10,7 +10,7 @@ from ..git.branch import Branch
 from ..graphql.loader import Fetch, Pending, Result, load
 from .checks import MEDIUM_INTERVAL, SLOW_INTERVAL
 from .common import Outcome, error_text, get
-from .remote import github_push_target
+from .remote import status_branch
 
 
 class EndedState(Enum):
@@ -160,7 +160,7 @@ async def contains_commit(
 async def load_ended_prs(
     fetch: Fetch,
     previous: tuple[EndedPr, ...] | None,
-    commit: tuple[str, int] | None,
+    commit: tuple[str, int],
     owner: str,
     name: str,
     branch: str,
@@ -168,14 +168,11 @@ async def load_ended_prs(
     """The merged and closed PRs from the branch whose commits include the commit,
     most recently updated first.
 
-    The commit is the oid and committer time of the remote-tracking branch, or
-    None if there is no remote-tracking branch.
+    The commit is the oid and committer time of the remote-tracking branch.
 
     A PR from a fork is in the fork's parent. A PR from another fork, with the same
     branch name, is not the branch's PR.
     """
-    if commit is None:
-        return ()
     oid, committed_at = commit
     data = await fetch(
         ENDED_PRS_QUERY,
@@ -244,16 +241,18 @@ def ended_outcome(
 
 
 def agreeing(
-    result: Result[tuple[EndedPr, ...]] | Pending, commit: tuple[str, int] | None
+    result: Result[tuple[EndedPr, ...]] | Pending,
+    commit: tuple[str, int],
+    first_push: bool,
 ) -> Result[tuple[EndedPr, ...]] | Pending:
     """result, changed to agree with the commit of the remote-tracking branch.
 
-    With no remote-tracking branch, the branch has no PR. After a push, the
+    After a first push, a pending result is no PR. After a later push, the
     outcome hides the PRs whose head is not the new commit.
     """
-    if result is Pending.PENDING or commit is not None or result.input is None:
-        return result
-    return Result((), result.error, None)
+    if result is Pending.PENDING and first_push:
+        return Result((), None, commit)
+    return result
 
 
 def poll_interval(result: Result[tuple[EndedPr, ...]], age: float) -> float:
@@ -271,18 +270,24 @@ async def pr_ended_status(
     on GitHub, or None if GitHub deleted it. If wait is false, a status that has
     not loaded is loading.
     """
-    target = github_push_target(branch)
-    if target is None:
+    source = status_branch(branch)
+    if source is None:
         return Outcome()
-    repository = target.repository
-    tracking = target.tracking
-    commit = (tracking.commit.hash, tracking.commit.commit_date) if tracking else None
+    repository = source.repository
+    commit = (source.oid, source.remote.commit.commit_date)
     result = await load(
-        target.endpoint,
+        source.endpoint,
         load_ended_prs,
-        (repository.owner, repository.name, target.name),
+        (repository.owner, repository.name, source.remote.name),
         poll_interval,
         input=commit,
         wait=wait,
     )
-    return ended_outcome(agreeing(result, commit), remote_oid)
+    return ended_outcome(
+        agreeing(
+            result,
+            commit,
+            source.assumes_no_pr(load_ended_prs, result is Pending.PENDING),
+        ),
+        remote_oid,
+    )
