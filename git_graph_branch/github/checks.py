@@ -5,9 +5,9 @@ from enum import Enum
 from typing import Any
 
 from ..git.branch import Branch
+from ..graphql.loader import Fetch, Pending, Result, load
 from .common import Outcome, error_text, get
-from .loader import Fetch, Pending, Result, load
-from .remote import Repository, github_repository, new_pr_url, pr_remote_branch
+from .remote import Repository, github_push_target, new_pr_url
 
 
 class CheckStatus(Enum):
@@ -23,6 +23,12 @@ ROLLUP_STATUS = {
     "EXPECTED": CheckStatus.PENDING,
     "SUCCESS": CheckStatus.PASSED,
 }
+
+NO_REMOTE_TRACKING_BRANCH: dict[str, Any] = {
+    "repository": {"defaultBranchRef": None, "ref": None}
+}
+"""The state of a push target with no remote-tracking branch: as if the branch
+is not on GitHub, so it has no PR."""
 
 FAST_INTERVAL = 5.0
 FAST_PERIOD = 180.0
@@ -95,9 +101,11 @@ def new_pr_link(
     return new_pr_url(repository, branch)
 
 
-def remote_reason(data: dict[str, Any], remote: str, local_oid: str) -> str | None:
+def remote_reason(
+    data: dict[str, Any], remote: str, local_oid: str | None
+) -> str | None:
     """Why the remote-tracking branch is not the same as the branch on GitHub."""
-    if get(data, "repository") is None:
+    if local_oid is None or get(data, "repository") is None:
         return None
     oid = get(data, "repository", "ref", "target", "oid")
     if oid is None:
@@ -112,7 +120,7 @@ def check_outcome(
     repository: Repository,
     branch: str,
     remote: str,
-    local_oid: str,
+    local_oid: str | None,
 ) -> Outcome[CheckStatus]:
     """The check status of the PR for a remote branch.
 
@@ -166,7 +174,7 @@ def after_push(data: dict[str, Any], oid: str) -> dict[str, Any]:
     """data, changed to agree with a push of oid from this machine.
 
     GitHub accepted the push, so the branch exists at oid. A push does not reopen
-    a PR, so a branch that was deleted has no open PR.
+    a PR, so a branch that was deleted, or never pushed, has no open PR.
     """
     repository = data.get("repository")
     if repository is None:
@@ -178,9 +186,30 @@ def after_push(data: dict[str, Any], oid: str) -> dict[str, Any]:
     }
 
 
+def agreeing(
+    result: Result[dict[str, Any]] | Pending, oid: str | None
+) -> Result[dict[str, Any]] | Pending:
+    """result, changed to agree with oid, the commit of the remote-tracking branch.
+
+    A result that was loaded for another commit is older than oid, as git changes
+    the remote-tracking branch after GitHub accepts a push.
+    """
+    if result is Pending.PENDING or result.state is None or result.input == oid:
+        return result
+    state = NO_REMOTE_TRACKING_BRANCH if oid is None else after_push(result.state, oid)
+    return Result(state, result.error, oid)
+
+
 async def load_pr_checks(
-    fetch: Fetch, previous: Mapping[str, Any] | None, owner: str, name: str, ref: str
+    fetch: Fetch,
+    previous: Mapping[str, Any] | None,
+    oid: str | None,
+    owner: str,
+    name: str,
+    ref: str,
 ) -> dict[str, Any]:
+    if oid is None:
+        return NO_REMOTE_TRACKING_BRANCH
     return await fetch(PR_CHECKS_QUERY, {"owner": owner, "name": name, "ref": ref})
 
 
@@ -189,23 +218,19 @@ async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]
 
     If wait is false, a status that has not loaded is loading.
     """
-    remote = pr_remote_branch(branch)
-    if remote is None:
+    target = github_push_target(branch)
+    if target is None:
         return Outcome(has_pr=False)
-    found = github_repository(remote.remote)
-    if found is None:
-        return Outcome(has_pr=False)
-    github, repository = found
+    repository = target.repository
     result = await load(
-        github,
+        target.endpoint,
         load_pr_checks,
-        (repository.owner, repository.name, f"refs/heads/{remote.name}"),
+        (repository.owner, repository.name, target.ref),
         poll_interval,
         # A push from this machine updates the remote-tracking ref, so load again
-        version=remote.commit.hash,
-        update=after_push,
+        input=target.oid,
         wait=wait,
     )
     return check_outcome(
-        result, repository, remote.name, remote.remote, remote.commit.hash
+        agreeing(result, target.oid), repository, target.name, target.remote, target.oid
     )

@@ -1,19 +1,22 @@
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 from git_graph_branch.github.checks import (
     FAST_INTERVAL,
     MEDIUM_INTERVAL,
+    NO_REMOTE_TRACKING_BRANCH,
     SLOW_INTERVAL,
     CheckStatus,
-    after_push,
+    agreeing,
     check_outcome,
+    load_pr_checks,
     poll_interval,
 )
 from git_graph_branch.github.common import Outcome
-from git_graph_branch.github.loader import Pending, Result
 from git_graph_branch.github.remote import Repository
+from git_graph_branch.graphql.loader import Pending, Result
 
 REPOSITORY = Repository("github.com", "o", "n")
 NEW_PR_URL = "https://github.com/o/n/pull/new/b"
@@ -168,16 +171,47 @@ def test_poll_interval(
 def test_push_moves_the_remote_branch() -> None:
     data = response("SUCCESS")
     data["repository"]["ref"]["target"]["oid"] = "before push"
-    pushed = after_push(data, LOCAL_OID)
+    pushed = agreeing(Result(data, None, "before push"), LOCAL_OID)
 
-    assert outcome(Result(pushed)) == Outcome(
+    assert outcome(pushed) == Outcome(
         CheckStatus.PASSED, has_pr=True, remote_oid=LOCAL_OID
     )
 
 
 def test_push_after_deletion_makes_the_remote_branch_with_no_pr() -> None:
-    pushed = after_push({"repository": {"ref": None}}, LOCAL_OID)
+    pushed = agreeing(Result({"repository": {"ref": None}}, None, "old"), LOCAL_OID)
 
-    assert outcome(Result(pushed)) == Outcome(
+    assert outcome(pushed) == Outcome(
         url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
     )
+
+
+def test_first_push_makes_the_remote_branch_with_no_pr() -> None:
+    pushed = agreeing(Result(NO_REMOTE_TRACKING_BRANCH), LOCAL_OID)
+
+    assert outcome(pushed) == Outcome(
+        url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
+    )
+
+
+def test_result_for_the_current_commit_is_not_changed() -> None:
+    result = Result(response("SUCCESS"), None, LOCAL_OID)
+
+    assert agreeing(result, LOCAL_OID) is result
+
+
+def test_no_remote_tracking_branch_has_no_pr() -> None:
+    result = agreeing(Result(response("SUCCESS"), None, LOCAL_OID), None)
+
+    assert check_outcome(result, REPOSITORY, "b", "origin", None) == Outcome(
+        has_pr=False
+    )
+
+
+async def test_no_remote_tracking_branch_sends_no_request() -> None:
+    fetch = AsyncMock()
+
+    state = await load_pr_checks(fetch, None, None, "o", "n", "refs/heads/b")
+
+    assert state == NO_REMOTE_TRACKING_BRANCH
+    fetch.assert_not_called()
