@@ -229,7 +229,7 @@ async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]
         input=source.oid,
         wait=wait,
     )
-    return check_outcome(
+    outcome = check_outcome(
         agreeing(
             result,
             source.oid,
@@ -240,3 +240,6 @@ async def pr_check_status(branch: Branch, *, wait: bool) -> Outcome[CheckStatus]
         source.remote.remote,
         source.oid,
     )
+    if outcome.has_pr:
+        source.found_pr()
+    return outcome

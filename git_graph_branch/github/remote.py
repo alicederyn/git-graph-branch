@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from os import environ
 from urllib.request import getproxies, proxy_bypass
 
-from ..git.branch import Branch, RemoteBranch
-from ..git.config import http_config, remote_push_default, remote_url
-from .store import assumes_no_pr, read_push_state
+from ..git.branch import Branch, RemoteBranch, local_branch_names, remote_branch_names
+from ..git.config import http_config, remote_url
+from .store import assumes_no_pr, forget_push, read_branches
 from .transport import Endpoint
 
 
@@ -127,35 +127,6 @@ def pr_remote_branch(branch: Branch) -> RemoteBranch | None:
 
 
 @dataclass(frozen=True)
-class PushTarget:
-    """The remote branch that a push of the branch makes or changes (ADR 8)."""
-
-    remote: str
-    name: str
-
-    @property
-    def tracking(self) -> RemoteBranch | None:
-        """The remote-tracking branch, if it exists."""
-        b = RemoteBranch(self.remote, self.name)
-        return b if b.exists() else None
-
-
-def push_target(branch: Branch) -> PushTarget | None:
-    """The branch of the same name on the pushdefault remote, else the upstream
-    branch if it is on a remote.
-
-    Taken from config, so the push target of a branch that has not been pushed
-    is known before the push.
-    """
-    if push_remote := remote_push_default():
-        return PushTarget(push_remote, branch.name)
-    upstream = branch.upstream_config
-    if upstream is None or upstream[0] == ".":
-        return None
-    return PushTarget(*upstream)
-
-
-@dataclass(frozen=True)
 class StatusBranch:
     """The status branch on GitHub, with the endpoint to load its data from."""
 
@@ -175,23 +146,22 @@ class StatusBranch:
         """Whether the load must show no PR, after a first push (ADR 8)."""
         return assumes_no_pr((self.remote.remote, self.remote.name), load, pending)
 
+    def found_pr(self) -> None:
+        """Stop assuming that a first push made the branch, as it has a PR."""
+        forget_push((self.remote.remote, self.remote.name))
 
-def read_push_target_state(branch: Branch) -> None:
-    """Update the store record of the branch's push target, if it is on GitHub."""
-    target = push_target(branch)
-    if target is None or github_repository(target.remote) is None:
-        return
-    read_push_state((target.remote, target.name), target.tracking is not None)
+
+def read_branches_into_store() -> None:
+    read_branches(remote_branch_names(), local_branch_names())
 
 
 def status_branch(branch: Branch) -> StatusBranch | None:
     """The branch's status branch, if it is on GitHub and there is a token for it.
 
-    Reads the store record of the push target also when there is no status
-    branch, so that the record exists before the first push. When the push
-    target's remote-tracking branch exists, it is the status branch.
+    Reads the branches into the store also when there is no status branch, so
+    that the store has them before the first push.
     """
-    read_push_target_state(branch)
+    read_branches_into_store()
     remote = pr_remote_branch(branch)
     if remote is None:
         return None

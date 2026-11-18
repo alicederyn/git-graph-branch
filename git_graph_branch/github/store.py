@@ -1,4 +1,5 @@
-"""Whether each push target had a remote-tracking branch (ADR 8).
+"""Which remote-tracking branches probably came from a push from this machine
+(ADR 8).
 
 No query can tell that a branch on GitHub was created by a push from this
 machine, so the GitHub layer records it from what git showed in earlier
@@ -7,78 +8,82 @@ calculations.
 
 from collections.abc import Hashable
 from dataclasses import dataclass, field
-from enum import Enum, auto
 
 from ..nix.fact import Fact
 
-
-class PushState(Enum):
-    ABSENT = auto()
-    """The last read found no remote-tracking branch."""
-    PUSHED = auto()
-    """The remote-tracking branch appeared after a read found none, so this
-    machine probably pushed the branch for the first time, and it has no PR."""
-    PRESENT = auto()
-    """The read found a remote-tracking branch, and the record was missing or
-    present."""
+type RemoteBranchName = tuple[str, str]
+"""The remote, and the name of the branch on the remote."""
 
 
 @dataclass(eq=False)
-class Record:
-    key: Hashable
+class Store:
     fact: Fact
-    state: PushState
-    loaded: set[Hashable] = field(default_factory=set)
-    """The loads that gave a result since the state became pushed."""
+    remote_branches: frozenset[RemoteBranchName]
+    local_branches: frozenset[str]
+    just_pushed: dict[RemoteBranchName, set[Hashable]] = field(default_factory=dict)
+    """Each just-pushed branch, with the loads of it that gave a result."""
 
 
-records: dict[Hashable, Record] = {}
+store: Store | None = None
 
 
-def next_state(state: PushState | None, tracking_exists: bool) -> PushState:
-    if not tracking_exists:
-        return PushState.ABSENT
-    if state in (PushState.ABSENT, PushState.PUSHED):
-        return PushState.PUSHED
-    return PushState.PRESENT
+def read_branches(
+    remote_branches: frozenset[RemoteBranchName], local_branches: frozenset[str]
+) -> None:
+    """Change the store from the branches that exist now.
 
-
-def read_push_state(key: Hashable, tracking_exists: bool) -> PushState:
-    """Change the record of a push target from what git shows now, and return it.
-
-    Must be called in a nix report calculation. A second read that finds the same
-    gives the same state. Nothing nixes a record, as the caller also reads the
-    remote-tracking branch, and a change to it nixes the calculation.
+    Must be called in a nix report calculation. A second read of the same
+    branches changes nothing. Nothing nixes the store, as the caller also reads
+    the branches, and a change to them nixes the calculation.
     """
-    record = records.get(key)
-    if record is None:
-        record = records[key] = Record(key, Fact(), next_state(None, tracking_exists))
-        record.fact.on_moot(drop, record)
+    global store
+    if (
+        store is not None
+        and remote_branches is store.remote_branches
+        and local_branches is store.local_branches
+    ):
+        store.fact.record_use()
+        return
+    if store is None:
+        store = Store(Fact(), remote_branches, local_branches)
+        store.fact.on_moot(drop, store)
     else:
-        state = next_state(record.state, tracking_exists)
-        if state is PushState.PUSHED and record.state is not PushState.PUSHED:
-            record.loaded = set()
-        record.state = state
-    record.fact.record_use()
-    return record.state
+        for branch in remote_branches - store.remote_branches:
+            # A push usually gives the remote branch the name of a local branch
+            # that existed before the push
+            if branch[1] in store.local_branches:
+                store.just_pushed.setdefault(branch, set())
+        for branch in list(store.just_pushed):
+            if branch not in remote_branches or branch[1] not in local_branches:
+                del store.just_pushed[branch]
+        store.remote_branches = remote_branches
+        store.local_branches = local_branches
+    store.fact.record_use()
 
 
-def assumes_no_pr(key: Hashable, load: Hashable, pending: bool) -> bool:
-    """Whether a load must show no PR, as this machine probably pushed the branch
-    for the first time, and the load has given no result since the push.
+def assumes_no_pr(branch: RemoteBranchName, load: Hashable, pending: bool) -> bool:
+    """Whether a load of branch must show no PR, as this machine probably pushed
+    the branch for the first time, and the load has given no result since then.
 
     Call it with pending false when the load has a result, so that later results
     of the same load are used, also if its entry is made again.
     """
-    record = records.get(key)
-    if record is None or record.state is not PushState.PUSHED:
+    loaded = store.just_pushed.get(branch) if store else None
+    if loaded is None:
         return False
     if not pending:
-        record.loaded.add(load)
+        loaded.add(load)
         return False
-    return load not in record.loaded
+    return load not in loaded
 
 
-def drop(record: Record) -> None:
-    if records.get(record.key) is record:
-        del records[record.key]
+def forget_push(branch: RemoteBranchName) -> None:
+    """Take branch out of the just-pushed set, as a load found a PR for it."""
+    if store is not None:
+        store.just_pushed.pop(branch, None)
+
+
+def drop(dropped: Store) -> None:
+    global store
+    if store is dropped:
+        store = None
