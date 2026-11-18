@@ -48,7 +48,8 @@ policy get it unchanged.
 
 The GitHub layer has a store. Each calculation that gets a PR status reads the
 store, also when the branch has no status branch. A read gives the store the
-remote-tracking branches and the local branches that exist now. Cached functions
+names of the remote-tracking branches and of the local branches that exist now,
+and the commit that each points to. Cached functions
 list them from the files under `refs/` and from `packed-refs`. They skip `.lock`
 files, count a ref in both places once, and skip `refs/remotes/<remote>/HEAD`,
 which is a symbolic ref and not a branch. As the lists are cached, all reads in
@@ -57,22 +58,25 @@ one calculation give the same sets.
 The store keeps the sets from the last read, and a **just-pushed** set of
 remote-tracking branches. On each read:
 
-- A remote-tracking branch that is not in the set from the last read goes into
-  the just-pushed set if a local branch with the same name was in the set from
-  the last read. A push from this machine usually gives the remote branch the
-  name of a local branch that existed before the push. A fetch of the branch of
-  another person, followed at once by a checkout, as `gh pr checkout` does, does
-  not, as the local branch is new.
-- A branch leaves the just-pushed set when the read does not find it, or does
-  not find a local branch with its name.
+- A remote-tracking branch whose name is not in the set from the last read goes
+  into the just-pushed set if two conditions are true. A local branch with the
+  same name was in the set from the last read. That local branch now points to
+  the same commit as the remote-tracking branch. A push from this machine
+  usually gives the remote branch the name of a local branch that existed before
+  the push, and the commit that the local branch points to after the push. A
+  fetch of the branch of another person usually gives a commit that is not the
+  commit of the local branch with the same name. When `gh pr checkout` makes a
+  new local branch at once after the fetch, that local branch is not in the set
+  from the last read.
+- A branch leaves the just-pushed set when the read does not find its name, or
+  does not find a local branch with its name. Commits do not change the set.
 - The first read, and the first read after the store was deleted, puts no
   branch in the just-pushed set.
 
 A second read of the same sets changes nothing. A branch stays in the
-just-pushed set after its first read, because `git push -u` changes the
-remote-tracking branch before it writes the upstream branch to git config. So a
-calculation can find the new remote-tracking branch before it is a status
-branch.
+just-pushed set after its first read, because its loads give results only in
+later calculations, and because a read can come before `git push -u` writes the
+upstream branch to git config.
 
 The store is a nix fact only so that nix can tell when no calculation reads it;
 the store then deletes its data. Nothing nixes the store. Each calculation that
@@ -182,7 +186,9 @@ In `--watch` mode, after the first push, and after each push of a branch with no
 open PR, the PR status shows at once, with no 🔌, if the status branch is on
 GitHub and there is a token for it. A branch that was pushed before the first
 read of the store shows 🔌, for example a branch pushed while the tool was not
-running, or a branch that was made and pushed in one command. A one-shot run waits for each load, so it does not change.
+running, or a branch that was made and pushed in one command. So does a push of
+a commit that the local branch does not point to at the next read, for example
+`git push origin other:x`, or a commit made during or just after the push. A one-shot run waits for each load, so it does not change.
 
 nix now records a state for each file under `refs/remotes`, and watches each
 directory. A fetch that changes any remote-tracking branch, also one that no
@@ -192,11 +198,16 @@ their results.
 The state that the GitHub layer shows can be wrong until a load is complete:
 
 - After a first push, it shows no PR, also if the branch was already on GitHub
-  with an open PR. A `git fetch` that makes a remote-tracking branch with the
-  name of an existing local branch has the same effect, also if the local branch
-  starts to use it later, for example with `git branch -u` after another person
-  opened a PR. So does `git remote rename`, for each branch that tracks the
-  renamed remote. If the transport delays the first request, for example
+  with an open PR. A fetch has the same effect if it makes a remote-tracking
+  branch with the name of a local branch that existed at the last read, and that
+  local branch points to the same commit at the next read. Examples are
+  `git pull origin x`, `gh pr checkout` of a branch that has a local branch, and
+  a branch of another person with no commits after the same base. The effect
+  stays if the local branch starts to use the remote-tracking branch later, for
+  example with `git branch -u` after another person opened a PR. `git remote
+  rename`, and `git remote add` with a fetch of a fork, have the same effect for
+  each local branch that points to the same commit as the remote-tracking branch
+  with its name. If the transport delays the first request, for example
   until a rate limit ends, this state shows for that time. The repository's
   default branch is not known, so a first push of a branch with that name shows
   a link to make a PR.
