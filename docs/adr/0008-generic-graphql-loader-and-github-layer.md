@@ -20,8 +20,8 @@ We will split the GraphQL loader
   loader keeps one connection from each transport while it has loads for it,
   and the connection keeps the rate limit state. The connection gives the
   earliest time for the next batch, and can make a poll interval longer. The
-  GitHub layer also records whether each push target had a remote-tracking
-  branch, and changes each loaded state so that it matches the commit of the
+  GitHub layer also records which remote-tracking branches probably came from
+  a push from this machine, and changes each loaded state so that it matches the commit of the
   remote-tracking branch.
 
 A load has a key and an input. The key identifies the data that the load reads.
@@ -34,51 +34,60 @@ When the input changes, the loader keeps the state, and starts the poll age
 again from zero. It loads again at once, or, if a load is running, when that
 load is complete. The loader does not decide if a result or the input is newer.
 
-The GitHub layer uses two branches for each local branch:
+**The status branch** of a local branch gives its PR status: the branch of the
+same name on `remote.pushDefault` if its remote-tracking branch exists, else the
+upstream branch if it is on a remote and its remote-tracking branch exists. This
+is the rule of the code for
+[ADR 5](0005-adaptive-polling-for-pr-check-status.md); the text of ADR 5 does
+not give the condition that the remote-tracking branch exists. The GitHub layer
+loads the data of the status branch, with the commit of its remote-tracking
+branch as the input. When a result was loaded with a different input, the
+GitHub layer changes the state that it reads so that it matches the current
+input. The loader keeps the state as loaded, so the next load and the poll
+policy get it unchanged.
 
-- **The status branch** gives the PR status: the branch of the same name on
-  `remote.pushDefault` if its remote-tracking branch exists, else the upstream
-  branch if it is on a remote and its remote-tracking branch exists. This is
-  the rule of the code for
-  [ADR 5](0005-adaptive-polling-for-pr-check-status.md); the text of ADR 5 does
-  not give the condition that the remote-tracking branch exists. The GitHub
-  layer loads the data of the status branch, with the commit of its
-  remote-tracking branch as the input. When a result was loaded with a
-  different input, the GitHub layer changes the state that it reads so that it
-  matches the current input. The loader keeps the state as loaded, so the next
-  load and the poll policy get it unchanged.
-- **The push target** is the branch that git config names, whether its
-  remote-tracking branch exists or not: the branch of the same name on
-  `remote.pushDefault`, else the upstream branch if it is on a remote. When the
-  remote-tracking branch of the push target exists, the push target is also the
-  status branch.
+The GitHub layer has a store. Each calculation that gets a PR status reads the
+store, also when the branch has no status branch. A read gives the store the
+remote-tracking branches and the local branches that exist now. Cached functions
+list them from the files under `refs/` and from `packed-refs`. They skip `.lock`
+files, count a ref in both places once, and skip `refs/remotes/<remote>/HEAD`,
+which is a symbolic ref and not a branch. As the lists are cached, all reads in
+one calculation give the same sets.
 
-The GitHub layer has a store, with one record for each push target on GitHub,
-keyed on the git remote and the branch name.
-When it gets the PR status of a branch, it reads the record of the branch's push
-target, also before the push, and also when the status branch is the upstream
-branch. A record is a nix fact only so that the store deletes it when no
-calculation reads it. Each read changes the record from what the read finds:
+The store keeps the sets from the last read, and a **just-pushed** set of
+remote-tracking branches. On each read:
 
-- **Absent:** the read found no remote-tracking branch.
-- **Pushed:** the record was absent or pushed, and the read found a
-  remote-tracking branch. The GitHub layer assumes that this machine pushed the
-  branch for the first time, and that the branch has no PR.
-- **Present:** the record was missing or present, and the read found a
-  remote-tracking branch. The GitHub layer assumes nothing.
+- A remote-tracking branch that is not in the set from the last read goes into
+  the just-pushed set if a local branch with the same name was in the set from
+  the last read. A push from this machine usually gives the remote branch the
+  name of a local branch that existed before the push. A fetch of the branch of
+  another person, followed at once by a checkout, as `gh pr checkout` does, does
+  not, as the local branch is new.
+- A branch leaves the just-pushed set when the read does not find it, or does
+  not find a local branch with its name.
+- The first read, and the first read after the store was deleted, puts no
+  branch in the just-pushed set.
 
-A second read with the same remote-tracking branch gives the same state, so the
-checks, the reviews, and the merged and closed PRs read the same state in one
-calculation, and a calculation that runs again reads it again with no change.
-Nothing nixes a record: each calculation that reads it also reads the
-remote-tracking branch, and a change of that branch nixes the calculation.
+A second read of the same sets changes nothing. A branch stays in the
+just-pushed set after its first read, because `git push -u` changes the
+remote-tracking branch before it writes the upstream branch to git config. So a
+calculation can find the new remote-tracking branch before it is a status
+branch.
 
-While the record is pushed, each of the three loads of the status branch that
-has given no result since the push uses a state with no PR for the current
-commit while it is pending. The record keeps the loads that gave a result, so a
-load whose entry is made again later, for example the merged and closed PRs
-after a PR closes, shows 🔌 as for other branches. If the first load fails, the
-GitHub layer shows the error, as for other branches.
+The store is a nix fact only so that nix can tell when no calculation reads it;
+the store then deletes its data. Nothing nixes the store. Each calculation that
+reads it also reads the branches, and a change to them nixes the calculation.
+
+When the status branch is in the just-pushed set, the GitHub layer assumes that
+this machine pushed it for the first time, and that it has no PR. For each
+branch in the just-pushed set, the store keeps the loads of the status branch
+that gave a result, and deletes them when the branch leaves the set. Each of the
+three loads of the status branch that has given no result uses a state with no
+PR for the current commit while it is pending. When the check load finds an
+open PR, the branch leaves the just-pushed set. So a load whose entry is made
+again later, for example the merged and closed PRs after a PR closes, shows 🔌
+as for other branches. If the first load fails, the GitHub layer shows the error, as
+for other branches.
 
 ## Context
 
@@ -121,12 +130,23 @@ until the first load is complete. We rejected it because it adds an option to
 the loader for one kind of caller. The GitHub layer gives the same state when it
 reads a pending result.
 
-**Load the push target before the push.** The GitHub layer loads the push
-target with no input, and a load function with no input sends no request and
-gives no PR. The push then changes only the input. We rejected it because the
-status branch must then always be the push target. So a branch that tracks the
-PR branch of another person, on a remote that is not `remote.pushDefault`, does
-not show that PR until it is pushed.
+**Load the push target before the push.** The push target is the branch that a
+push will make, from git config. The GitHub layer loads it with no input; a load
+function with no input sends no request and gives no PR. The push then changes
+only the input. We rejected it because the status branch must then always be the
+push target. So a branch that tracks the PR branch of another person, on a
+remote that is not `remote.pushDefault`, does not show that PR until it is
+pushed. Also, git config does not name the remote of `git push -u <remote>`.
+
+**Record each push target.** The store keeps one record for each push target,
+with whether its remote-tracking branch exists. The push target can be
+predicted: `branch.<name>.pushRemote`, else `remote.pushDefault`, else
+`origin`, with the name of the local branch. This needs no watch of
+`refs/remotes`, and a fetch of a branch with no local branch of the same name
+changes nothing. We rejected it because a prediction that is wrong, for example
+for `git push -u <remote>` to another remote, shows 🔌, and the rule then has
+to follow git's rules for the push remote. The set of remote-tracking branches
+follows what the push did.
 
 **Find the first push in the reflog.** A remote-tracking branch whose reflog
 has only one entry, "update by push", was created by a push. We rejected it
@@ -159,21 +179,24 @@ The loader can be tested with no GitHub, and the GitHub layer can be tested
 with no loader.
 
 In `--watch` mode, after the first push, and after each push of a branch with no
-open PR, the PR status shows at once, with no 🔌. For the first push, this needs
-the push target in git config before the push: in practice `remote.pushDefault`,
-or an upstream branch whose remote-tracking branch was pruned. Without
-`remote.pushDefault`, the push target before a first push is usually an
-upstream branch such as `origin/main`, which exists, and `git push -u` and
-`push.autoSetupRemote` set the upstream branch only during the push. A branch
-that a calculation did not read before its first push, for example because the
-branch was made and pushed in one command, or while the tool was not running,
-shows 🔌. A one-shot run waits for each load, so it does not change.
+open PR, the PR status shows at once, with no 🔌, if the status branch is on
+GitHub and there is a token for it. A branch that was pushed before the first
+read of the store shows 🔌, for example a branch pushed while the tool was not
+running, or a branch that was made and pushed in one command. A one-shot run waits for each load, so it does not change.
+
+nix now records a state for each file under `refs/remotes`, and watches each
+directory. A fetch that changes any remote-tracking branch, also one that no
+local branch uses, starts a new calculation. Loads that did not change keep
+their results.
 
 The state that the GitHub layer shows can be wrong until a load is complete:
 
 - After a first push, it shows no PR, also if the branch was already on GitHub
-  with an open PR. A `git fetch` that makes the remote-tracking branch appear
-  has the same effect. If the transport delays the first request, for example
+  with an open PR. A `git fetch` that makes a remote-tracking branch with the
+  name of an existing local branch has the same effect, also if the local branch
+  starts to use it later, for example with `git branch -u` after another person
+  opened a PR. So does `git remote rename`, for each branch that tracks the
+  renamed remote. If the transport delays the first request, for example
   until a rate limit ends, this state shows for that time. The repository's
   default branch is not known, so a first push of a branch with that name shows
   a link to make a PR.
@@ -191,5 +214,5 @@ tested in use.
 ## Revisit if
 
 A component needs data from the load of another component, and the caller
-cannot give it. Or the store must keep more information from git than the three
-states of a push target.
+cannot give it. Or the store must keep more information from git than which
+remote-tracking branches probably came from a push.
