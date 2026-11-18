@@ -63,13 +63,13 @@ class Frames:
         self.branch = branch
         self.report: Fact | None = None
 
-    async def next(self) -> PrStatus:
+    async def next(self, branch: Branch | None = None) -> PrStatus:
         if self.report is not None:
             self.report.nix()
         for cache_clear in cache_clear_fns:
             cache_clear()
         with report_calculation() as self.report:
-            status = await pr_status(self.branch, wait=False)
+            status = await pr_status(branch or self.branch, wait=False)
         release_moot_facts()
         await asyncio.sleep(0.05)
         return status
@@ -133,3 +133,29 @@ async def test_branch_pushed_before_the_first_report_is_loading(
     push()
 
     assert (await Frames(feature).next()).check_loading
+
+
+async def test_first_push_with_upstream_set_by_the_push_shows_no_pr(
+    watching: None, feature: Branch
+) -> None:
+    check_call(["git", "config", "--unset", "remote.pushdefault"])
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
+    push()
+    await frames.next()
+    check_call(["git", "branch", "--set-upstream-to", "origin/feature"])
+
+    assert not is_loading(await frames.next())
+
+
+async def test_checkout_of_a_branch_fetched_at_the_same_time_is_loading(
+    watching: None, feature: Branch
+) -> None:
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
+    check_call(["git", "update-ref", "refs/remotes/origin/colleague", "main"])
+    check_call(["git", "branch", "--track", "colleague", "origin/colleague"])
+
+    assert (await frames.next(Branch("colleague"))).check_loading

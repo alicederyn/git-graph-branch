@@ -135,9 +135,7 @@ class Branch(Ref):
         return git_head() == f"ref: refs/heads/{self.name}"
 
     @property
-    def upstream_config(self) -> tuple[str, str] | None:
-        """The remote and branch name of the upstream branch in config, whether or
-        not it exists. The remote is "." for a local branch."""
+    def upstream(self) -> Branch | RemoteBranch | None:
         c = config().get(("branch", self.name), {})
         remote = c.get("remote", ".")
         merge = c.get("merge")
@@ -147,14 +145,7 @@ class Branch(Ref):
             raise AssertionError(
                 f'Unexpected config: [branch "{self.name}"].merge does not start `refs/heads/`'
             )
-        return remote, merge.removeprefix("refs/heads/")
-
-    @property
-    def upstream(self) -> Branch | RemoteBranch | None:
-        upstream = self.upstream_config
-        if upstream is None:
-            return None
-        remote, upstream_name = upstream
+        upstream_name = merge.removeprefix("refs/heads/")
         b = (
             Branch(upstream_name)
             if remote == "."
@@ -227,3 +218,35 @@ def branches() -> Iterator[Branch]:
             if branch.name not in seen:
                 branch.commit = commit
                 yield branch
+
+
+@cache
+def local_branch_names() -> frozenset[str]:
+    return frozenset(b.name for b in branches())
+
+
+@cache
+def remote_branch_names() -> frozenset[tuple[str, str]]:
+    """The remote and name of each remote-tracking branch."""
+    return frozenset((b.remote, b.name) for b in remote_branches())
+
+
+@cache
+def remote_branches() -> frozenset[RemoteBranch]:
+    remotes_dir = git_common_state() / "refs" / "remotes"
+    found: set[RemoteBranch] = set()
+    for p in Path.rglob(remotes_dir, "*"):
+        # Git creates .lock files alongside refs for atomic writes
+        if p.is_file() and p.suffix != ".lock" and not is_remote_head(remotes_dir, p):
+            found.add(RemoteBranch(p))
+    for p in packed_refs():
+        if p.is_relative_to(Path("remotes")):
+            found.add(RemoteBranch(remotes_dir.parent / p))
+    return frozenset(found)
+
+
+def is_remote_head(remotes_dir: Path, path: Path) -> bool:
+    """Whether path is refs/remotes/<remote>/HEAD, which is a symbolic ref to the
+    remote's default branch, not a branch."""
+    parts = path.relative_to(remotes_dir).parts
+    return len(parts) == 2 and parts[1] == "HEAD"
