@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from os import environ
 from urllib.request import getproxies, proxy_bypass
 
-from ..git.branch import Branch, RemoteBranch, local_branch_names, remote_branch_names
+from ..git.branch import (
+    Branch,
+    RemoteBranch,
+    local_branch_commits,
+    remote_branch_commits,
+)
 from ..git.config import http_config, remote_url
 from .store import assumes_no_pr, forget_push, read_branches
 from .transport import Endpoint
@@ -152,7 +157,7 @@ class StatusBranch:
 
 
 def read_branches_into_store() -> None:
-    read_branches(remote_branch_names(), local_branch_names())
+    read_branches(remote_branch_commits(), local_branch_commits())
 
 
 def status_branch(branch: Branch) -> StatusBranch | None:
