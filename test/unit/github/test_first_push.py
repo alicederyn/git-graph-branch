@@ -159,3 +159,16 @@ async def test_checkout_of_a_branch_fetched_at_the_same_time_is_loading(
     check_call(["git", "branch", "--track", "colleague", "origin/colleague"])
 
     assert (await frames.next(Branch("colleague"))).check_loading
+
+
+async def test_fetch_of_a_branch_with_the_local_name_at_another_commit_is_loading(
+    watching: None, feature: Branch
+) -> None:
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
+    check_call(["git", "commit", "--allow-empty", "-m", "theirs"])
+    check_call(["git", "update-ref", "refs/remotes/origin/feature", "HEAD"])
+    check_call(["git", "reset", "-q", "--hard", "HEAD~1"])
+
+    assert (await frames.next()).check_loading

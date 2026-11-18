@@ -6,7 +6,7 @@ machine, so the GitHub layer records it from what git showed in earlier
 calculations.
 """
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 
 from ..nix.fact import Fact
@@ -18,8 +18,10 @@ type RemoteBranchName = tuple[str, str]
 @dataclass(eq=False)
 class Store:
     fact: Fact
-    remote_branches: frozenset[RemoteBranchName]
-    local_branches: frozenset[str]
+    remote_branches: Mapping[RemoteBranchName, str]
+    """The commit of each remote-tracking branch at the last read."""
+    local_branches: Mapping[str, str]
+    """The commit of each local branch at the last read."""
     just_pushed: dict[RemoteBranchName, set[Hashable]] = field(default_factory=dict)
     """Each just-pushed branch, with the loads of it that gave a result."""
 
@@ -28,9 +30,9 @@ store: Store | None = None
 
 
 def read_branches(
-    remote_branches: frozenset[RemoteBranchName], local_branches: frozenset[str]
+    remote_branches: Mapping[RemoteBranchName, str], local_branches: Mapping[str, str]
 ) -> None:
-    """Change the store from the branches that exist now.
+    """Change the store from the branches that exist now, with their commits.
 
     Must be called in a nix report calculation. A second read of the same
     branches changes nothing. Nothing nixes the store, as the caller also reads
@@ -48,10 +50,15 @@ def read_branches(
         store = Store(Fact(), remote_branches, local_branches)
         store.fact.on_moot(drop, store)
     else:
-        for branch in remote_branches - store.remote_branches:
+        for branch, commit in remote_branches.items():
             # A push usually gives the remote branch the name of a local branch
-            # that existed before the push
-            if branch[1] in store.local_branches:
+            # that existed before the push, and the commit that the local branch
+            # points to after it
+            if (
+                branch not in store.remote_branches
+                and branch[1] in store.local_branches
+                and local_branches.get(branch[1]) == commit
+            ):
                 store.just_pushed.setdefault(branch, set())
         for branch in list(store.just_pushed):
             if branch not in remote_branches or branch[1] not in local_branches:

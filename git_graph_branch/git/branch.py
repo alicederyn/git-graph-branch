@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import cache, cached_property
 from pathlib import Path
-from typing import Any, Iterator, TypeGuard, TypeVar, overload
+from typing import Any, Iterator, Mapping, TypeGuard, TypeVar, overload
 
 from .commit import Commit
 from .config import config, remote_push_default
@@ -221,14 +221,26 @@ def branches() -> Iterator[Branch]:
 
 
 @cache
-def local_branch_names() -> frozenset[str]:
-    return frozenset(b.name for b in branches())
+def local_branch_commits() -> Mapping[str, str]:
+    """The commit of each local branch, by name."""
+    return {b.name: hash for b in branches() if (hash := commit_hash(b))}
 
 
 @cache
-def remote_branch_names() -> frozenset[tuple[str, str]]:
-    """The remote and name of each remote-tracking branch."""
-    return frozenset((b.remote, b.name) for b in remote_branches())
+def remote_branch_commits() -> Mapping[tuple[str, str], str]:
+    """The commit of each remote-tracking branch, by remote and name."""
+    return {
+        (b.remote, b.name): hash for b in remote_branches() if (hash := commit_hash(b))
+    }
+
+
+def commit_hash(ref: Ref) -> str | None:
+    """The commit of ref, or None if git deleted it after it was listed, as a
+    fetch with --prune can. The deletion nixes the calculation."""
+    try:
+        return ref.commit.hash
+    except FileNotFoundError:
+        return None
 
 
 @cache
