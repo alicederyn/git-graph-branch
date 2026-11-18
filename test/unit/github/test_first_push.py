@@ -7,10 +7,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from git_graph_branch.display import pr_status
+from git_graph_branch.display import PrStatus, pr_status
 from git_graph_branch.git import Branch
 from git_graph_branch.github import transport
-from git_graph_branch.nix.fact import report_calculation, session
+from git_graph_branch.nix.fact import (
+    Fact,
+    release_moot_facts,
+    report_calculation,
+    session,
+)
 from test.conftest import cache_clear_fns
 
 
@@ -50,21 +55,45 @@ def feature(repo: Path, monkeypatch: pytest.MonkeyPatch) -> Branch:
     return Branch("feature")
 
 
+class Frames:
+    """Calculate reports as the watch loop does: each change nixes the last
+    report, and moot facts are released when a report is complete."""
+
+    def __init__(self, branch: Branch) -> None:
+        self.branch = branch
+        self.report: Fact | None = None
+
+    async def next(self) -> PrStatus:
+        if self.report is not None:
+            self.report.nix()
+        for cache_clear in cache_clear_fns:
+            cache_clear()
+        with report_calculation() as self.report:
+            status = await pr_status(self.branch, wait=False)
+        release_moot_facts()
+        await asyncio.sleep(0.05)
+        return status
+
+
+def is_loading(status: PrStatus) -> bool:
+    return status.check_loading or status.review_loading or status.ended_loading
+
+
+def push() -> None:
+    check_call(["git", "update-ref", "refs/remotes/origin/feature", "feature"])
+
+
 async def test_first_push_shows_no_pr_without_loading(
     watching: None, feature: Branch
 ) -> None:
-    for _ in range(2):
-        with report_calculation():
-            await pr_status(feature, wait=False)
-        await asyncio.sleep(0.05)
-    check_call(["git", "update-ref", "refs/remotes/origin/feature", "feature"])
-    for cache_clear in cache_clear_fns:
-        cache_clear()
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
+    push()
 
-    with report_calculation():
-        status = await pr_status(feature, wait=False)
+    status = await frames.next()
 
-    assert not (status.check_loading or status.review_loading or status.ended_loading)
+    assert not is_loading(status)
     assert status.has_pr is False
     assert status.new_pr_url == "https://github.com/o/n/pull/new/feature"
 
@@ -72,17 +101,35 @@ async def test_first_push_shows_no_pr_without_loading(
 async def test_later_push_shows_no_pr_without_loading(
     watching: None, feature: Branch
 ) -> None:
-    check_call(["git", "update-ref", "refs/remotes/origin/feature", "feature"])
-    for _ in range(2):
-        with report_calculation():
-            await pr_status(feature, wait=False)
-        await asyncio.sleep(0.05)
+    push()
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
     check_call(["git", "commit", "--allow-empty", "-m", "second"])
-    check_call(["git", "update-ref", "refs/remotes/origin/feature", "feature"])
-    for cache_clear in cache_clear_fns:
-        cache_clear()
+    push()
 
-    with report_calculation():
-        status = await pr_status(feature, wait=False)
+    assert not is_loading(await frames.next())
 
-    assert not (status.check_loading or status.review_loading or status.ended_loading)
+
+async def test_first_push_of_a_branch_with_a_remote_upstream_shows_no_pr(
+    watching: None, feature: Branch
+) -> None:
+    check_call(["git", "update-ref", "refs/remotes/origin/main", "main"])
+    check_call(["git", "branch", "--set-upstream-to", "origin/main"])
+    frames = Frames(feature)
+    await frames.next()
+    await frames.next()
+    push()
+
+    status = await frames.next()
+
+    assert not is_loading(status)
+    assert status.new_pr_url == "https://github.com/o/n/pull/new/feature"
+
+
+async def test_branch_pushed_before_the_first_report_is_loading(
+    watching: None, feature: Branch
+) -> None:
+    push()
+
+    assert (await Frames(feature).next()).check_loading

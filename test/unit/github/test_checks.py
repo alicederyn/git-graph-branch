@@ -1,17 +1,14 @@
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from git_graph_branch.github.checks import (
     FAST_INTERVAL,
     MEDIUM_INTERVAL,
-    NO_REMOTE_TRACKING_BRANCH,
     SLOW_INTERVAL,
     CheckStatus,
     agreeing,
     check_outcome,
-    load_pr_checks,
     poll_interval,
 )
 from git_graph_branch.github.common import Outcome
@@ -171,7 +168,7 @@ def test_poll_interval(
 def test_push_moves_the_remote_branch() -> None:
     data = response("SUCCESS")
     data["repository"]["ref"]["target"]["oid"] = "before push"
-    pushed = agreeing(Result(data, None, "before push"), LOCAL_OID)
+    pushed = agreeing(Result(data, None, "before push"), LOCAL_OID, False)
 
     assert outcome(pushed) == Outcome(
         CheckStatus.PASSED, has_pr=True, remote_oid=LOCAL_OID
@@ -179,39 +176,33 @@ def test_push_moves_the_remote_branch() -> None:
 
 
 def test_push_after_deletion_makes_the_remote_branch_with_no_pr() -> None:
-    pushed = agreeing(Result({"repository": {"ref": None}}, None, "old"), LOCAL_OID)
+    data = {"repository": {"ref": None}}
+    pushed = agreeing(Result(data, None, "old"), LOCAL_OID, False)
 
     assert outcome(pushed) == Outcome(
         url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
     )
 
 
-def test_first_push_makes_the_remote_branch_with_no_pr() -> None:
-    pushed = agreeing(Result(NO_REMOTE_TRACKING_BRANCH), LOCAL_OID)
+def test_first_push_has_no_pr_before_it_loads() -> None:
+    pushed = agreeing(Pending.PENDING, LOCAL_OID, True)
 
     assert outcome(pushed) == Outcome(
         url=NEW_PR_URL, has_pr=False, remote_oid=LOCAL_OID
     )
+
+
+def test_pending_result_is_loading_unless_first_push() -> None:
+    assert agreeing(Pending.PENDING, LOCAL_OID, False) is Pending.PENDING
 
 
 def test_result_for_the_current_commit_is_not_changed() -> None:
     result = Result(response("SUCCESS"), None, LOCAL_OID)
 
-    assert agreeing(result, LOCAL_OID) is result
+    assert agreeing(result, LOCAL_OID, True) is result
 
 
-def test_no_remote_tracking_branch_has_no_pr() -> None:
-    result = agreeing(Result(response("SUCCESS"), None, LOCAL_OID), None)
+def test_failed_first_load_after_a_first_push_shows_the_error() -> None:
+    result: Result[dict[str, Any]] = Result(None, TimeoutError())
 
-    assert check_outcome(result, REPOSITORY, "b", "origin", None) == Outcome(
-        has_pr=False
-    )
-
-
-async def test_no_remote_tracking_branch_sends_no_request() -> None:
-    fetch = AsyncMock()
-
-    state = await load_pr_checks(fetch, None, None, "o", "n", "refs/heads/b")
-
-    assert state == NO_REMOTE_TRACKING_BRANCH
-    fetch.assert_not_called()
+    assert agreeing(result, LOCAL_OID, True) is result

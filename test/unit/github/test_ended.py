@@ -1,7 +1,6 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock
 
 from git_graph_branch.github.common import Outcome
 from git_graph_branch.github.ended import (
@@ -214,14 +213,11 @@ def test_pending_ended_pr_is_loading() -> None:
     assert ended_outcome(Pending.PENDING, None) == Outcome(loading=True)
 
 
-async def test_no_remote_tracking_branch_sends_no_request() -> None:
-    fetch = AsyncMock()
-
-    assert await load_ended_prs(fetch, None, None, "me", "n", "b") == ()
-    fetch.assert_not_called()
+def test_first_push_has_no_ended_pr_before_it_loads() -> None:
+    assert agreeing(Pending.PENDING, (LOCAL, 0), True) == Result((), None, (LOCAL, 0))
 
 
-def test_no_remote_tracking_branch_has_no_ended_pr() -> None:
-    result = Result((merged(1, LOCAL),), None, (LOCAL, 0))
+def test_failed_first_load_after_a_first_push_shows_the_error() -> None:
+    result: Result[tuple[EndedPr, ...]] = Result(None, TimeoutError())
 
-    assert agreeing(result, None) == Result(())
+    assert agreeing(result, (LOCAL, 0), True) is result
