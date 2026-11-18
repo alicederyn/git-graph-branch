@@ -1,13 +1,13 @@
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
 
 from git_graph_branch.github.checks import FAST_INTERVAL
 from git_graph_branch.github.common import Outcome
-from git_graph_branch.github.loader import Pending, Result
 from git_graph_branch.github.reviews import (
     DISMISSAL_PERIOD,
     NO_PR,
@@ -19,12 +19,14 @@ from git_graph_branch.github.reviews import (
     Review,
     Reviews,
     ReviewStatus,
+    agreeing,
     load_pr_reviews,
     poll_interval,
     review_outcome,
     review_status,
     review_tooltip,
 )
+from git_graph_branch.graphql.loader import Pending, Result
 
 T0 = datetime(2026, 10, 1)
 LATER = T0 + timedelta(hours=1)
@@ -379,7 +381,18 @@ class FakeGitHub:
 
 
 async def load(github: FakeGitHub, previous: Reviews | None) -> Reviews:
-    return await load_pr_reviews(github.fetch, previous, "o", "n", "refs/heads/b")
+    return await load_pr_reviews(
+        github.fetch, previous, "oid", "o", "n", "refs/heads/b"
+    )
+
+
+async def test_no_remote_tracking_branch_sends_no_request() -> None:
+    fetch = AsyncMock()
+
+    state = await load_pr_reviews(fetch, None, None, "o", "n", "refs/heads/b")
+
+    assert state == NO_PR
+    fetch.assert_not_called()
 
 
 async def test_load_reads_every_page() -> None:
@@ -431,3 +444,15 @@ async def test_load_reads_all_threads_of_a_new_pr() -> None:
     await load(github, previous)
 
     assert github.thread_pages == [("t1", 10), (None, 3)]
+
+
+def test_no_remote_tracking_branch_has_no_reviews() -> None:
+    result = Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), None, "oid")
+
+    assert agreeing(result, None) == Result(NO_PR)
+
+
+def test_push_keeps_the_reviews() -> None:
+    result = Result(reviews("APPROVED", (opinion("ann", "APPROVED"),)), None, "old")
+
+    assert agreeing(result, "new") is result

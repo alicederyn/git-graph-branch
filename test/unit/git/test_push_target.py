@@ -2,7 +2,7 @@ from pathlib import Path
 from subprocess import check_call
 
 from git_graph_branch.git import Branch, RemoteBranch
-from git_graph_branch.github.remote import pr_remote_branch
+from git_graph_branch.github.remote import PushTarget, push_target
 
 from .utils import git_test_commit
 
@@ -21,7 +21,25 @@ def test_push_target_is_preferred_to_remote_upstream(worktree: Path) -> None:
     check_call(["git", "branch", "--set-upstream-to", "origin/main"])
     check_call(["git", "config", "remote.pushdefault", "fork"])
 
-    assert pr_remote_branch(Branch("feature")) == RemoteBranch("fork", "feature")
+    target = push_target(Branch("feature"))
+
+    assert target == PushTarget("fork", "feature")
+    assert target.tracking == RemoteBranch("fork", "feature")
+
+
+def test_push_target_before_the_first_push(worktree: Path) -> None:
+    git_test_commit()
+    check_call(["git", "checkout", "-b", "feature"])
+    add_remote("origin")
+    add_remote("fork")
+    check_call(["git", "update-ref", "refs/remotes/origin/main", "main"])
+    check_call(["git", "branch", "--set-upstream-to", "origin/main"])
+    check_call(["git", "config", "remote.pushdefault", "fork"])
+
+    target = push_target(Branch("feature"))
+
+    assert target == PushTarget("fork", "feature")
+    assert target.tracking is None
 
 
 def test_remote_upstream_without_push_target(worktree: Path) -> None:
@@ -30,11 +48,11 @@ def test_remote_upstream_without_push_target(worktree: Path) -> None:
     check_call(["git", "update-ref", "refs/remotes/origin/main", "main"])
     check_call(["git", "branch", "--set-upstream-to", "origin/main"])
 
-    assert pr_remote_branch(Branch("main")) == RemoteBranch("origin", "main")
+    assert push_target(Branch("main")) == PushTarget("origin", "main")
 
 
-def test_local_upstream_has_no_pr_remote_branch(worktree: Path) -> None:
+def test_local_upstream_has_no_push_target(worktree: Path) -> None:
     git_test_commit()
     check_call(["git", "checkout", "-t", "-b", "feature"])
 
-    assert pr_remote_branch(Branch("feature")) is None
+    assert push_target(Branch("feature")) is None

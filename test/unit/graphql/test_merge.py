@@ -1,7 +1,7 @@
 import pytest
 from graphql import build_schema, parse, validate
 
-from git_graph_branch.github.merge import Query, QueryError, merge
+from git_graph_branch.graphql.merge import Query, QueryError, merge
 
 SCHEMA = build_schema("""
     type Query {

@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 
 from git_graph_branch.github.common import Outcome
 from git_graph_branch.github.ended import (
@@ -9,10 +10,11 @@ from git_graph_branch.github.ended import (
     ENDED_PRS_QUERY,
     EndedPr,
     EndedState,
+    agreeing,
     ended_outcome,
     load_ended_prs,
 )
-from git_graph_branch.github.loader import Pending, Result
+from git_graph_branch.graphql.loader import Pending, Result
 
 T0 = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
 LOCAL = "local"
@@ -118,7 +120,7 @@ class FakeGitHub:
 
 async def load(github: FakeGitHub) -> tuple[EndedPr, ...]:
     return await load_ended_prs(
-        github.fetch, None, "me", "n", "b", LOCAL, int(T0.timestamp())
+        github.fetch, None, (LOCAL, int(T0.timestamp())), "me", "n", "b"
     )
 
 
@@ -210,3 +212,16 @@ def test_ended_pr_does_not_show_after_a_new_push() -> None:
 
 def test_pending_ended_pr_is_loading() -> None:
     assert ended_outcome(Pending.PENDING, None) == Outcome(loading=True)
+
+
+async def test_no_remote_tracking_branch_sends_no_request() -> None:
+    fetch = AsyncMock()
+
+    assert await load_ended_prs(fetch, None, None, "me", "n", "b") == ()
+    fetch.assert_not_called()
+
+
+def test_no_remote_tracking_branch_has_no_ended_pr() -> None:
+    result = Result((merged(1, LOCAL),), None, (LOCAL, 0))
+
+    assert agreeing(result, None) == Result(())

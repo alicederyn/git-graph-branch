@@ -135,7 +135,9 @@ class Branch(Ref):
         return git_head() == f"ref: refs/heads/{self.name}"
 
     @property
-    def upstream(self) -> Branch | RemoteBranch | None:
+    def upstream_config(self) -> tuple[str, str] | None:
+        """The remote and branch name of the upstream branch in config, whether or
+        not it exists. The remote is "." for a local branch."""
         c = config().get(("branch", self.name), {})
         remote = c.get("remote", ".")
         merge = c.get("merge")
@@ -145,7 +147,14 @@ class Branch(Ref):
             raise AssertionError(
                 f'Unexpected config: [branch "{self.name}"].merge does not start `refs/heads/`'
             )
-        upstream_name = merge.removeprefix("refs/heads/")
+        return remote, merge.removeprefix("refs/heads/")
+
+    @property
+    def upstream(self) -> Branch | RemoteBranch | None:
+        upstream = self.upstream_config
+        if upstream is None:
+            return None
+        remote, upstream_name = upstream
         b = (
             Branch(upstream_name)
             if remote == "."

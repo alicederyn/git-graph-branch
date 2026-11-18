@@ -1,4 +1,4 @@
-"""GitHub data, loaded through nix facts (ADRs 3–5, 7)."""
+"""GitHub data, loaded through nix facts (ADRs 3–5, 7 and 8)."""
 
 from .checks import CheckStatus, pr_check_status
 from .ended import EndedState, pr_ended_status

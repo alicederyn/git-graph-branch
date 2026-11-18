@@ -6,8 +6,8 @@ from os import environ
 from urllib.request import getproxies, proxy_bypass
 
 from ..git.branch import Branch, RemoteBranch
-from ..git.config import http_config, remote_url
-from .loader import Endpoint
+from ..git.config import http_config, remote_push_default, remote_url
+from .transport import Endpoint
 
 
 @dataclass(frozen=True)
@@ -110,13 +110,63 @@ def github_repository(remote: str) -> tuple[Endpoint, Repository] | None:
     return (github, repository) if github else None
 
 
-def pr_remote_branch(branch: Branch) -> RemoteBranch | None:
-    """The remote branch whose open PR is the branch's PR (ADR 5).
+@dataclass(frozen=True)
+class PushTarget:
+    """The remote branch whose open PR is the branch's PR (ADRs 5 and 8)."""
 
-    This is the push target: the branch on the pushdefault remote, else the
-    upstream branch if it is on a remote.
+    remote: str
+    name: str
+
+    @property
+    def tracking(self) -> RemoteBranch | None:
+        """The remote-tracking branch, if it exists."""
+        b = RemoteBranch(self.remote, self.name)
+        return b if b.exists() else None
+
+
+def push_target(branch: Branch) -> PushTarget | None:
+    """The branch of the same name on the pushdefault remote, else the upstream
+    branch if it is on a remote.
+
+    Taken from config, so the push target of a branch that has not been pushed
+    is known before the push.
     """
-    if downstream := branch.downstream:
-        return downstream
-    upstream = branch.upstream
-    return upstream if isinstance(upstream, RemoteBranch) else None
+    if push_remote := remote_push_default():
+        return PushTarget(push_remote, branch.name)
+    upstream = branch.upstream_config
+    if upstream is None or upstream[0] == ".":
+        return None
+    return PushTarget(*upstream)
+
+
+@dataclass(frozen=True)
+class GitHubTarget:
+    """A push target on GitHub, with the endpoint to load its data from."""
+
+    endpoint: Endpoint
+    repository: Repository
+    remote: str
+    name: str
+    tracking: RemoteBranch | None
+    """The remote-tracking branch, or None if there is none."""
+
+    @property
+    def ref(self) -> str:
+        return f"refs/heads/{self.name}"
+
+    @property
+    def oid(self) -> str | None:
+        """The commit of the remote-tracking branch, if there is one."""
+        return self.tracking.commit.hash if self.tracking else None
+
+
+def github_push_target(branch: Branch) -> GitHubTarget | None:
+    """The branch's push target, if it is on GitHub and there is a token for it."""
+    target = push_target(branch)
+    if target is None:
+        return None
+    found = github_repository(target.remote)
+    if found is None:
+        return None
+    github, repository = found
+    return GitHubTarget(github, repository, target.remote, target.name, target.tracking)

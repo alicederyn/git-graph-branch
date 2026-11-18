@@ -10,10 +10,10 @@ from typing import Any
 import aiohttp
 
 from ..git.branch import Branch
+from ..graphql.loader import Fetch, Pending, Result, load
 from .checks import FAST_INTERVAL
 from .common import Outcome, error_text, get
-from .loader import Fetch, Pending, Result, load
-from .remote import github_repository, pr_remote_branch
+from .remote import github_push_target
 
 
 class ReviewStatus(Enum):
@@ -272,8 +272,15 @@ def first_review(thread: dict[str, Any]) -> Review | None:
 
 
 async def load_pr_reviews(
-    fetch: Fetch, previous: Reviews | None, owner: str, name: str, ref: str
+    fetch: Fetch,
+    previous: Reviews | None,
+    oid: str | None,
+    owner: str,
+    name: str,
+    ref: str,
 ) -> Reviews:
+    if oid is None:
+        return NO_PR
     previous = previous or NO_PR
     data = await fetch(
         PR_REVIEWS_QUERY,
@@ -516,6 +523,19 @@ def review_outcome(result: Result[Reviews] | Pending) -> Outcome[ReviewStatus]:
     )
 
 
+def agreeing(
+    result: Result[Reviews] | Pending, oid: str | None
+) -> Result[Reviews] | Pending:
+    """result, changed to agree with oid, the commit of the remote-tracking branch.
+
+    With no remote-tracking branch, the branch has no PR. A push keeps the reviews
+    until the next load.
+    """
+    if result is Pending.PENDING or oid is not None or result.input is None:
+        return result
+    return Result(NO_PR, result.error, None)
+
+
 def poll_interval(result: Result[Reviews], age: float) -> float:
     """Retry soon after a connection failure, which costs no rate limit.
 
@@ -534,20 +554,17 @@ async def pr_review_status(branch: Branch, *, wait: bool) -> Outcome[ReviewStatu
 
     If wait is false, a status that has not loaded is loading.
     """
-    remote = pr_remote_branch(branch)
-    if remote is None:
+    target = github_push_target(branch)
+    if target is None:
         return Outcome(has_pr=False)
-    found = github_repository(remote.remote)
-    if found is None:
-        return Outcome(has_pr=False)
-    github, repository = found
+    repository = target.repository
     result = await load(
-        github,
+        target.endpoint,
         load_pr_reviews,
-        (repository.owner, repository.name, f"refs/heads/{remote.name}"),
+        (repository.owner, repository.name, target.ref),
         poll_interval,
         # A push from this machine updates the remote-tracking ref, so load again
-        version=remote.commit.hash,
+        input=target.oid,
         wait=wait,
     )
-    return review_outcome(result)
+    return review_outcome(agreeing(result, target.oid))
