@@ -155,11 +155,11 @@ class Branch(Ref):
 
 
 @cache
-def worktree_branches() -> set[str]:
-    """Return the set of branch names checked out in worktrees other than the current one."""
+def worktree_branches() -> dict[str, Path]:
+    """Map each branch checked out in a worktree other than the current one to that worktree's directory."""
     common = git_common_state()
     working = git_working_state()
-    result: set[str] = set()
+    result: dict[str, Path] = {}
 
     def _extract_branch(head_content: str) -> str | None:
         head_content = head_content.strip()
@@ -173,7 +173,7 @@ def worktree_branches() -> set[str]:
         main_head = (common / "HEAD").open(encoding="utf-8").read()
         branch = _extract_branch(main_head)
         if branch is not None:
-            result.add(branch)
+            result[branch] = common.parent
 
     # Linked worktrees live under git_common_state() / "worktrees" / <name>
     worktrees_dir = common / "worktrees"
@@ -189,9 +189,18 @@ def worktree_branches() -> set[str]:
                 head_content = head_file.open(encoding="utf-8").read()
                 branch = _extract_branch(head_content)
                 if branch is not None:
-                    result.add(branch)
+                    result[branch] = _linked_worktree_dir(entry)
 
     return result
+
+
+def _linked_worktree_dir(state_dir: Path) -> Path:
+    """Read the directory of a linked worktree from its state dir.
+
+    The "gitdir" file holds the path of the ".git" file in the worktree directory.
+    """
+    gitdir = (state_dir / "gitdir").open(encoding="utf-8").read().strip()
+    return Path(gitdir).parent
 
 
 def branches() -> Iterator[Branch]:

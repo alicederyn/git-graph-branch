@@ -11,7 +11,7 @@ from .utils import git_test_commit
 
 def test_no_worktrees(worktree: Path) -> None:
     git_test_commit()
-    assert worktree_branches() == set()
+    assert worktree_branches() == {}
 
 
 @pytest.mark.usefixtures("repo")
@@ -21,7 +21,7 @@ def test_linked_worktree_branch_included(
     git_test_commit()
     wt = tmp_path_factory.mktemp("wt") / "linked"
     check_call(["git", "worktree", "add", str(wt), "-b", "feature", "main"])
-    assert worktree_branches() == {"feature"}
+    assert worktree_branches() == {"feature": wt}
 
 
 @pytest.mark.usefixtures("repo")
@@ -31,7 +31,7 @@ def test_linked_worktree_detached_head_excluded(
     commit = git_test_commit()
     wt = tmp_path_factory.mktemp("wt") / "linked"
     check_call(["git", "worktree", "add", "--detach", str(wt), commit])
-    assert worktree_branches() == set()
+    assert worktree_branches() == {}
 
 
 @pytest.mark.usefixtures("repo")
@@ -58,4 +58,4 @@ def test_multiple_worktrees(
     wt2 = tmp_path_factory.mktemp("wt2") / "linked2"
     check_call(["git", "worktree", "add", str(wt1), "-b", "feature-a", "main"])
     check_call(["git", "worktree", "add", str(wt2), "-b", "feature-b", "main"])
-    assert worktree_branches() == {"feature-a", "feature-b"}
+    assert worktree_branches() == {"feature-a": wt1, "feature-b": wt2}

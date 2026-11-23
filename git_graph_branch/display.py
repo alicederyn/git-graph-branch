@@ -2,6 +2,7 @@
 import os
 from argparse import Namespace
 from enum import Enum
+from pathlib import Path
 from typing import Any, Iterable, NamedTuple
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
@@ -91,16 +92,22 @@ def branch_style(b: Branch) -> str:
     return ""
 
 
+def is_claude_worktree(worktree: Path) -> bool:
+    """Claude Code creates its worktrees under .claude/worktrees in the repository."""
+    return worktree.parent.parts[-2:] == (".claude", "worktrees")
+
+
 def branch_fragments(
     art: NodeArt,
     b: Branch,
     config: Config,
     parents: Iterable[Branch],
-    worktree_branches: set[str],
+    worktree_branches: dict[str, Path],
 ) -> StyleAndTextTuples:
     fragments: StyleAndTextTuples = [("", f"{art}  "), (branch_style(b), str(b))]
-    if b.name in worktree_branches:
-        fragments.append(("", " 🌲"))
+    worktree = worktree_branches.get(b.name)
+    if worktree is not None:
+        fragments.append(("", " 🤖" if is_claude_worktree(worktree) else " 🌲"))
     if config.remote_icons:
         icon = SYNC_STATUS_ICON[remote_sync_status(b)]
         if icon:

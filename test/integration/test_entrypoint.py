@@ -139,3 +139,24 @@ async def test_worktree_branch_indicator(
     assert err == ""
 
     check_call(["git", "worktree", "remove", f"{tmp_path}/wt"])
+
+
+@pytest.mark.usefixtures("repo")
+async def test_claude_worktree_branch_indicator(
+    capsys: pytest.CaptureFixture[str], tmp_path: str
+) -> None:
+    git_test_commit()
+    check_call(["git", "branch", "feature"])
+    check_call(
+        ["git", "worktree", "add", f"{tmp_path}/.claude/worktrees/wt", "feature"]
+    )
+
+    await amain([])
+
+    out, err = capsys.readouterr()
+    feature_line = next(line for line in out.splitlines() if "feature" in line)
+    assert "🤖" in feature_line
+    assert "🌲" not in feature_line
+    assert err == ""
+
+    check_call(["git", "worktree", "remove", f"{tmp_path}/.claude/worktrees/wt"])
